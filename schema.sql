@@ -123,6 +123,7 @@ create table public.material_issue_items (
   issue_request_id  uuid not null references public.material_issue_requests(id) on delete cascade,
   material_id       uuid not null references public.materials(id) on delete restrict,
   quantity          numeric not null check (quantity > 0),
+  approved_quantity numeric check (approved_quantity is null or approved_quantity >= 0),
   created_at        timestamptz not null default now()
 );
 

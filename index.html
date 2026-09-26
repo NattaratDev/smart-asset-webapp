@@ -547,7 +547,7 @@ async function fetchAll(){
       dbClient.from('fixed_assets').select('*').order('created_at',{ascending:false}),
       dbClient.from('requests').select('*').order('created_at',{ascending:false}),
       dbClient.from('material_stock_transactions').select('*').order('created_at',{ascending:false}),
-      dbClient.from('material_issue_requests').select('*, items:material_issue_items(id, material_id, quantity, material:materials(name,unit,item_code))').order('created_at',{ascending:false}),
+      dbClient.from('material_issue_requests').select('*, items:material_issue_items(id, material_id, quantity, approved_quantity, material:materials(name,unit,item_code))').order('created_at',{ascending:false}),
     ]);
     if(e1||e2||e3||e4||e5||e6) throw (e1||e2||e3||e4||e5||e6);
     state.users = users||[]; state.materials = materials||[]; state.assets = assets||[]; state.requests = requests||[]; state.stockTx = stockTx||[]; state.issueRequests = issueRequests||[];
@@ -1718,7 +1718,9 @@ function openIssueDetailModal(id){
         ${(r.items||[]).map(it=>`
           <div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm">
             <span class="text-slate-700">${escapeHtml(it.material?.name||'-')}</span>
-            <span class="font-medium text-slate-600">${it.quantity} ${escapeHtml(it.material?.unit||'')}</span>
+            ${r.status==='อนุมัติ'
+              ? `<span class="font-medium ${issuedQty(it)<Number(it.quantity)?'text-amber-600':'text-slate-600'}">ขอ ${it.quantity} · จ่าย ${issuedQty(it)} ${escapeHtml(it.material?.unit||'')}${issuedQty(it)<Number(it.quantity)?' (บางส่วน)':''}</span>`
+              : `<span class="font-medium text-slate-600">${it.quantity} ${escapeHtml(it.material?.unit||'')}</span>`}
           </div>`).join('') || '<p class="text-center text-slate-300 py-4 text-sm">ไม่มีรายการ</p>'}
       </div>
     </div>
@@ -1748,14 +1750,14 @@ function issueFormHtml(r){
       <td>${it?escapeHtml(it.material?.name||'-'):''}</td>
       <td style="text-align:center;width:22mm">${it?escapeHtml(it.material?.unit||''):''}</td>
       <td style="text-align:center;width:24mm">${it?it.quantity:''}</td>
-      <td style="text-align:center;width:24mm">${it&&approved?it.quantity:''}</td>
+      <td style="text-align:center;width:24mm">${it&&approved?issuedQty(it):''}</td>
       <td style="width:32mm"></td>
     </tr>`);
   }
   const sign = (label, name) => `
     <div style="text-align:center;margin-top:12mm">
       <div>(ลงชื่อ)<span class="a4-dots" style="min-width:55mm"></span>${label}</div>
-      <div>(<span class="a4-dots" style="min-width:55mm">${name?escapeHtml(name):'&nbsp;'}</span>)</div>
+      <div>(<span style="display:inline-block;min-width:55mm;text-align:center">${name?escapeHtml(name):'&nbsp;'}</span>)</div>
     </div>`;
   return `<div class="a4-sheet">
     <div style="text-align:center">
@@ -1810,34 +1812,110 @@ function refreshIssueView(){
   } else if(state.currentView==='matIssue') renderMatIssue();
 }
 
+function issuedQty(it){
+  return it.approved_quantity ?? it.quantity;
+}
+
 function approveIssueRequest(id, approve){
   const issue = state.issueRequests.find(r=>r.id===id);
   if(!issue) return;
-  confirmAction(approve?'ยืนยันการอนุมัติใบเบิกนี้?':'ยืนยันไม่อนุมัติใบเบิกนี้?', async ()=>{
+  if(approve){ openIssueApproveModal(id); return; }
+  confirmAction('ยืนยันไม่อนุมัติใบเบิกนี้?', async ()=>{
     showLoader();
     try{
-      const payload = { status: approve?'อนุมัติ':'ไม่อนุมัติ', approved_by: state.user.id, approved_at: new Date().toISOString() };
+      const payload = { status:'ไม่อนุมัติ', approved_by: state.user.id, approved_at: new Date().toISOString() };
       const { data, error } = await dbClient.from('material_issue_requests').update(payload).eq('id', id).select().single();
       if(error) throw error;
       Object.assign(issue, data);
-      if(approve){
-        for(const item of (issue.items||[])){
-          const mat = state.materials.find(m=>m.id===item.material_id);
-          if(!mat) continue;
-          const newQty = Math.max(0, Number(mat.quantity) - Number(item.quantity));
-          const { data: updatedMat } = await dbClient.from('materials').update({quantity:newQty}).eq('id', mat.id).select().single();
-          if(updatedMat) Object.assign(mat, updatedMat);
-          const { data: tx } = await dbClient.from('material_stock_transactions').insert({
-            material_id: mat.id, type:'เบิกออก', quantity: Number(item.quantity), note:'อนุมัติใบเบิก '+(issue.issue_code||''), reference_issue_id: issue.id, performed_by: state.user.id
-          }).select().single();
-          if(tx) state.stockTx.unshift(tx);
-        }
-      }
       refreshIssueView();
-      showToast(approve?'อนุมัติใบเบิกสำเร็จ':'ไม่อนุมัติใบเบิก','success');
+      showToast('ไม่อนุมัติใบเบิก','success');
     }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
   });
+}
+
+function openIssueApproveModal(id){
+  const issue = state.issueRequests.find(r=>r.id===id);
+  if(!issue) return;
+  const remaining = {};
+  const rows = (issue.items||[]).map((it, i)=>{
+    const mat = state.materials.find(m=>m.id===it.material_id);
+    const stock = mat ? Number(mat.quantity) : 0;
+    if(remaining[it.material_id] === undefined) remaining[it.material_id] = stock;
+    const max = Math.max(0, Math.min(Number(it.quantity), remaining[it.material_id]));
+    remaining[it.material_id] -= max;
+    const short = stock < Number(it.quantity);
+    return `<tr class="border-b border-slate-50">
+      <td class="py-2 pr-3 text-slate-700">${escapeHtml(it.material?.name||'-')}</td>
+      <td class="py-2 pr-3 text-center">${it.quantity}</td>
+      <td class="py-2 pr-3 text-center ${short?'text-rose-500 font-medium':'text-slate-500'}">${stock}</td>
+      <td class="py-2 w-28"><input type="number" class="input-field !py-1.5 text-center" data-idx="${i}" min="0" max="${max}" step="0.01" value="${max}"> <span class="text-xs text-slate-400">${escapeHtml(it.material?.unit||'')}</span></td>
+    </tr>`;
+  }).join('');
+  openModal(`อนุมัติใบเบิก ${issue.issue_code}`, `
+    <p class="text-sm text-slate-500 mb-3">ระบุจำนวนที่อนุมัติจ่ายแต่ละรายการ (เบิกบางส่วนได้ ไม่เกินจำนวนที่ขอและยอดคงเหลือ)</p>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead><tr class="text-slate-400 text-left border-b border-slate-100"><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3 text-center">ขอเบิก</th><th class="py-2 pr-3 text-center">คงเหลือ</th><th class="py-2">อนุมัติจ่าย</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div class="mt-3"><label class="text-sm text-slate-500">หมายเหตุผู้อนุมัติ (ถ้ามี)</label><textarea id="ia_note" rows="2" class="input-field"></textarea></div>
+    <div class="flex justify-end gap-2 pt-3"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="button" onclick="submitIssueApproval('${issue.id}')" class="btn-primary gap-2"><i data-lucide="check" class="w-4 h-4"></i>ยืนยันอนุมัติ</button></div>
+  `, 'max-w-2xl');
+  lucide.createIcons();
+}
+
+async function submitIssueApproval(id){
+  const issue = state.issueRequests.find(r=>r.id===id);
+  if(!issue) return;
+  const items = issue.items||[];
+  const qtys = items.map((it,i)=>{
+    const el = document.querySelector(`#modalBody input[data-idx="${i}"]`);
+    return el ? Number(el.value) : NaN;
+  });
+  const used = {};
+  for(let i=0;i<items.length;i++){
+    const it = items[i];
+    const mat = state.materials.find(m=>m.id===it.material_id);
+    const q = qtys[i];
+    if(isNaN(q) || q < 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
+    if(q > Number(it.quantity)){ showToast(`"${it.material?.name}" อนุมัติเกินจำนวนที่ขอ`,'error'); return; }
+    used[it.material_id] = (used[it.material_id]||0) + q;
+    if(used[it.material_id] > Number(mat?.quantity||0)){ showToast(`"${it.material?.name}" มียอดคงเหลือไม่พอ`,'error'); return; }
+  }
+  if(qtys.every(q=>q===0)){ showToast('จำนวนอนุมัติเป็น 0 ทุกรายการ กรุณาใช้ปุ่ม "ไม่อนุมัติ" แทน','error'); return; }
+  const note = $('#ia_note').value.trim() || null;
+  closeModal();
+  showLoader();
+  try{
+    const { data, error } = await dbClient.from('material_issue_requests').update({
+      status:'อนุมัติ', approved_by: state.user.id, approved_at: new Date().toISOString(), approver_note: note
+    }).eq('id', id).select().single();
+    if(error) throw error;
+    Object.assign(issue, data);
+    for(let i=0;i<items.length;i++){
+      const it = items[i], q = qtys[i];
+      const { error: e1 } = await dbClient.from('material_issue_items').update({ approved_quantity: q }).eq('id', it.id);
+      if(e1) throw e1;
+      it.approved_quantity = q;
+      if(q <= 0) continue;
+      const mat = state.materials.find(m=>m.id===it.material_id);
+      if(!mat) continue;
+      const newQty = Math.max(0, Number(mat.quantity) - q);
+      const { data: updatedMat, error: e2 } = await dbClient.from('materials').update({quantity:newQty}).eq('id', mat.id).select().single();
+      if(e2) throw e2;
+      Object.assign(mat, updatedMat);
+      const { data: tx } = await dbClient.from('material_stock_transactions').insert({
+        material_id: mat.id, type:'เบิกออก', quantity: q, note:'อนุมัติใบเบิก '+(issue.issue_code||'')+(q<Number(it.quantity)?` (จ่าย ${q} จากที่ขอ ${it.quantity})`:''), reference_issue_id: issue.id, performed_by: state.user.id
+      }).select().single();
+      if(tx) state.stockTx.unshift(tx);
+    }
+    refreshIssueView();
+    showToast('อนุมัติใบเบิกสำเร็จ','success');
+  }catch(err){
+    refreshIssueView();
+    showToast('อนุมัติไม่สมบูรณ์: '+err.message,'error');
+  }
+  finally{ hideLoader(); }
 }
 
 function deleteIssueRequest(id){
