@@ -13,6 +13,8 @@ create extension if not exists pgcrypto;
 -- ----------------------------------------------------------------------------
 -- 1) DROP (ถ้ามีของเดิม) - ลบตามลำดับ dependency
 -- ----------------------------------------------------------------------------
+drop table if exists public.medical_loans cascade;
+drop table if exists public.medical_equipment cascade;
 drop table if exists public.app_settings cascade;
 drop table if exists public.asset_loans cascade;
 drop table if exists public.asset_repairs cascade;
@@ -215,6 +217,44 @@ create table public.asset_loans (
 );
 
 -- ----------------------------------------------------------------------------
+-- 5f) TABLE: medical_equipment / medical_loans (ยืม-คืนอุปกรณ์การแพทย์ - แยกจากครุภัณฑ์ ใช้ยืม-คืนอย่างเดียว)
+-- ----------------------------------------------------------------------------
+create table public.medical_equipment (
+  id             uuid primary key default gen_random_uuid(),
+  equipment_code text unique not null,
+  name           text not null,
+  brand_model    text,
+  serial_number  text,
+  location       text,
+  image_url      text,
+  status         text not null default 'พร้อมใช้งาน' check (status in ('พร้อมใช้งาน','ไม่พร้อมใช้งาน')),
+  note           text,
+  created_by     uuid references public.users(id) on delete set null,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+
+create table public.medical_loans (
+  id               uuid primary key default gen_random_uuid(),
+  loan_code        text unique not null,
+  equipment_id     uuid not null references public.medical_equipment(id) on delete restrict,
+  borrower_name    text not null,
+  borrower_phone   text,
+  borrower_address text,
+  purpose          text,
+  loan_date        date not null default current_date,
+  due_date         date not null,
+  status           text not null default 'ยืมอยู่' check (status in ('ยืมอยู่','คืนแล้ว')),
+  returned_at      date,
+  return_condition text,
+  return_note      text,
+  lent_by          uuid references public.users(id) on delete set null,
+  received_by      uuid references public.users(id) on delete set null,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
 -- 5d) TABLE: app_settings (ตั้งค่าระบบ เช่น ข้อมูลหน่วยงาน - key/value)
 -- ----------------------------------------------------------------------------
 create table public.app_settings (
@@ -238,6 +278,8 @@ create index idx_asset_repairs_asset on public.asset_repairs(asset_id);
 create index idx_asset_loans_asset on public.asset_loans(asset_id);
 create index idx_asset_loans_borrower on public.asset_loans(borrower_id);
 create index idx_stock_tx_material on public.material_stock_transactions(material_id);
+create index idx_medical_loans_equipment on public.medical_loans(equipment_id);
+create unique index uq_medical_loans_active on public.medical_loans(equipment_id) where status = 'ยืมอยู่';   -- 1 ชิ้นยืมได้ครั้งละ 1 ใบ
 
 -- ----------------------------------------------------------------------------
 -- 7) AUTO-UPDATE updated_at TRIGGER
@@ -266,6 +308,10 @@ create trigger trg_asset_repairs_updated_at before update on public.asset_repair
   for each row execute function public.set_updated_at();
 create trigger trg_asset_loans_updated_at before update on public.asset_loans
   for each row execute function public.set_updated_at();
+create trigger trg_medical_equipment_updated_at before update on public.medical_equipment
+  for each row execute function public.set_updated_at();
+create trigger trg_medical_loans_updated_at before update on public.medical_loans
+  for each row execute function public.set_updated_at();
 create trigger trg_app_settings_updated_at before update on public.app_settings
   for each row execute function public.set_updated_at();
 
@@ -273,7 +319,7 @@ create trigger trg_app_settings_updated_at before update on public.app_settings
 -- 8) GRANTS - ให้สิทธิ์ anon/authenticated เข้าถึงตาราง (RLS ทำงานร่วมกับ GRANT เสมอ)
 -- ----------------------------------------------------------------------------
 grant usage on schema public to anon, authenticated;
-grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items, public.app_settings, public.asset_receipts, public.asset_repairs, public.asset_loans to anon, authenticated;
+grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items, public.app_settings, public.asset_receipts, public.asset_repairs, public.asset_loans, public.medical_equipment, public.medical_loans to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
@@ -290,6 +336,8 @@ alter table public.app_settings enable row level security;
 alter table public.asset_receipts enable row level security;
 alter table public.asset_repairs enable row level security;
 alter table public.asset_loans enable row level security;
+alter table public.medical_equipment enable row level security;
+alter table public.medical_loans enable row level security;
 
 -- users
 create policy "users_select_all" on public.users for select using (true);
@@ -346,6 +394,16 @@ create policy "asset_loans_select_all" on public.asset_loans for select using (t
 create policy "asset_loans_insert_all" on public.asset_loans for insert with check (true);
 create policy "asset_loans_update_all" on public.asset_loans for update using (true) with check (true);
 create policy "asset_loans_delete_all" on public.asset_loans for delete using (true);
+
+-- medical_equipment / medical_loans
+create policy "medical_equipment_select_all" on public.medical_equipment for select using (true);
+create policy "medical_equipment_insert_all" on public.medical_equipment for insert with check (true);
+create policy "medical_equipment_update_all" on public.medical_equipment for update using (true) with check (true);
+create policy "medical_equipment_delete_all" on public.medical_equipment for delete using (true);
+create policy "medical_loans_select_all" on public.medical_loans for select using (true);
+create policy "medical_loans_insert_all" on public.medical_loans for insert with check (true);
+create policy "medical_loans_update_all" on public.medical_loans for update using (true) with check (true);
+create policy "medical_loans_delete_all" on public.medical_loans for delete using (true);
 
 -- app_settings
 create policy "app_settings_select_all" on public.app_settings for select using (true);

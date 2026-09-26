@@ -225,7 +225,7 @@ const dbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 Chart.defaults.font.family = 'Kanit';
 
 const SESSION_KEY = 'smartasset_session';
-const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], assetReceipts: [], assetRepairs: [], assetLoans: [], settings: {}, charts: {} };
+const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], assetReceipts: [], assetRepairs: [], assetLoans: [], medEquipment: [], medLoans: [], settings: {}, charts: {} };
 
 const MENU_ITEMS = {
   dashboard:   { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
@@ -245,6 +245,9 @@ const MENU_ITEMS = {
   repAssetDep: { label: 'รายงานค่าเสื่อมราคา', short: 'ค่าเสื่อมราคา', icon: 'trending-down' },
   repAssetRepair: { label: 'รายงานการซ่อมบำรุง', short: 'รายงานซ่อม', icon: 'wrench' },
   repAssetLoan: { label: 'รายงานการยืม-คืน', short: 'รายงานยืม-คืน', icon: 'repeat' },
+  medEquip:    { label: 'ทะเบียนอุปกรณ์', icon: 'stethoscope' },
+  medLoan:     { label: 'ยืมอุปกรณ์', icon: 'hand-helping' },
+  medReturn:   { label: 'คืนอุปกรณ์', icon: 'undo-2' },
   employees:   { label: 'พนักงาน', icon: 'users' },
   profile:     { label: 'โปรไฟล์', icon: 'user-circle' },
   settings:    { label: 'ตั้งค่าระบบ', icon: 'settings' },
@@ -258,6 +261,7 @@ const ROLE_MENU = {
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetDep'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
+    { group:'ยืม-คืนอุปกรณ์การแพทย์', icon:'stethoscope', children:[{key:'medEquip'},{key:'medLoan'},{key:'medReturn'}] },
     { key:'employees' },
     { key:'profile' },
     { key:'settings' },
@@ -266,12 +270,14 @@ const ROLE_MENU = {
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetDep'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
+    { group:'ยืม-คืนอุปกรณ์การแพทย์', icon:'stethoscope', children:[{key:'medEquip'},{key:'medLoan'},{key:'medReturn'}] },
     { key:'profile' },
   ],
   employee: [
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetRepair'},{key:'assetLoan'}] },
+    { group:'ยืม-คืนอุปกรณ์การแพทย์', icon:'stethoscope', children:[{key:'medEquip'}] },
     { key:'profile' },
   ],
 };
@@ -400,6 +406,7 @@ function statusBadge(status){
     'ซ่อมบำรุง':'bg-amber-100 text-amber-600', 'จำหน่ายแล้ว':'bg-slate-200 text-slate-500',
     'แจ้งซ่อม':'bg-amber-100 text-amber-600', 'กำลังซ่อม':'bg-violet-100 text-violet-600', 'ซ่อมเสร็จ':'bg-emerald-100 text-emerald-600', 'ซ่อมไม่ได้':'bg-rose-100 text-rose-600', 'ยกเลิก':'bg-slate-200 text-slate-500',
     'ยืมอยู่':'bg-violet-100 text-violet-600', 'คืนแล้ว':'bg-emerald-100 text-emerald-600',
+    'พร้อมใช้งาน':'bg-emerald-100 text-emerald-600', 'ไม่พร้อมใช้งาน':'bg-rose-100 text-rose-600', 'ถูกยืม':'bg-violet-100 text-violet-600',
   };
   return `<span class="badge ${map[status]||'bg-slate-100 text-slate-500'}">${escapeHtml(status)}</span>`;
 }
@@ -614,13 +621,14 @@ async function fetchAll(){
     const results = await Promise.all([
       q('users'), q('materials'), q('fixed_assets'), q('material_stock_transactions'),
       dbClient.from('material_issue_requests').select('*, items:material_issue_items(id, material_id, quantity, approved_quantity, material:materials(name,unit,item_code))').order('created_at',{ascending:false}),
-      q('asset_receipts'), q('asset_repairs'), q('asset_loans'),
+      q('asset_receipts'), q('asset_repairs'), q('asset_loans'), q('medical_equipment'), q('medical_loans'),
     ]);
     const failed = results.find(r=>r.error);
     if(failed) throw failed.error;
-    const [users, materials, assets, stockTx, issueRequests, receipts, repairs, loans] = results.map(r=>r.data||[]);
+    const [users, materials, assets, stockTx, issueRequests, receipts, repairs, loans, medEquipment, medLoans] = results.map(r=>r.data||[]);
     state.users = users; state.materials = materials; state.assets = assets; state.stockTx = stockTx; state.issueRequests = issueRequests;
     state.assetReceipts = receipts; state.assetRepairs = repairs; state.assetLoans = loans;
+    state.medEquipment = medEquipment; state.medLoans = medLoans;
   }catch(err){ showToast('โหลดข้อมูลล้มเหลว: '+err.message,'error'); }
   finally{ hideLoader(); }
 }
@@ -793,7 +801,7 @@ function navigate(view){
   closeAdminPanel();
   closeUserMenu();
   $('#pageTitle').textContent = item ? item.label : '';
-  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, assetReceive: renderAssetReceive, assetRepair: renderAssetRepair, assetLoan: renderAssetLoan, repAssetReg: ()=>renderReport('assetReg'), repAssetDep: ()=>renderReport('assetDep'), repAssetRepair: ()=>renderReport('assetRepair'), repAssetLoan: ()=>renderReport('assetLoan'), profile: renderProfile, settings: renderSettings };
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, assetReceive: renderAssetReceive, assetRepair: renderAssetRepair, assetLoan: renderAssetLoan, medEquip: renderMedEquip, medLoan: renderMedLoan, medReturn: renderMedReturn, repAssetReg: ()=>renderReport('assetReg'), repAssetDep: ()=>renderReport('assetDep'), repAssetRepair: ()=>renderReport('assetRepair'), repAssetLoan: ()=>renderReport('assetLoan'), profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
   openMenuAncestors(view);
@@ -3212,6 +3220,333 @@ function exportReportCSV(kind){
   const labels = cfg.headers.map(h=>h.label);
   const rows = cfg.rows.map(r=>Object.fromEntries(labels.map((l,i)=>[l, r[i]])));
   exportCSV(rows, `${kind}_report.csv`, labels);
+}
+
+// ---------------------------------------------------------------------------
+// ยืม-คืนอุปกรณ์การแพทย์ (แยกจากครุภัณฑ์ ใช้ยืม-คืนอย่างเดียว) : ทะเบียน / ยืม / คืน
+// ---------------------------------------------------------------------------
+const MED_CONDITIONS = ['สภาพปกติ','ชำรุด/ต้องซ่อม'];
+let medStatusFilter = '';
+
+function activeMedLoanOf(eqId){ return state.medLoans.find(l=>l.equipment_id===eqId && l.status==='ยืมอยู่'); }
+function isMedLoanOverdue(l){ return l.status==='ยืมอยู่' && l.due_date < todayStr(); }
+function medEquipStatus(e){ return activeMedLoanOf(e.id) ? 'ถูกยืม' : e.status; }
+function medEquipLabel(id){ const e = state.medEquipment.find(x=>x.id===id); return e ? `${e.name} (${e.equipment_code})` : '-'; }
+function medEquipCodeTaken(code, exceptId){
+  const c = String(code||'').trim().toLowerCase();
+  return !!c && state.medEquipment.some(e=>e.id!==exceptId && (e.equipment_code||'').trim().toLowerCase()===c);
+}
+function refreshMedView(){
+  const v = state.currentView;
+  if(v==='medEquip') renderMedEquip();
+  else if(v==='medLoan') renderMedLoan();
+  else if(v==='medReturn') renderMedReturn();
+}
+
+// ---------- ทะเบียน ----------
+function renderMedEquip(){
+  const canManage = state.user.role !== 'employee';
+  medStatusFilter = '';
+  const list = state.medEquipment;
+  const cnt = k => list.filter(e=>medEquipStatus(e)===k).length;
+  const cards = [
+    {key:'', label:'ทั้งหมด', icon:'layers', color:'sky', n:list.length},
+    {key:'พร้อมใช้งาน', label:'พร้อมให้ยืม', icon:'check-circle', color:'emerald', n:cnt('พร้อมใช้งาน')},
+    {key:'ถูกยืม', label:'ถูกยืม', icon:'hand-helping', color:'violet', n:cnt('ถูกยืม')},
+    {key:'ไม่พร้อมใช้งาน', label:'ไม่พร้อมใช้งาน', icon:'alert-triangle', color:'rose', n:cnt('ไม่พร้อมใช้งาน')},
+  ];
+  $('#mainContent').innerHTML = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      ${cards.map(c=>`<button type="button" data-mfilter="${c.key}" onclick="setMedFilter('${c.key}')" class="med-card card flex items-center gap-3 text-left transition ring-2 ring-transparent">
+        <div class="w-10 h-10 rounded-2xl bg-${c.color}-100 text-${c.color}-500 flex items-center justify-center shrink-0"><i data-lucide="${c.icon}" class="w-5 h-5"></i></div>
+        <div class="min-w-0"><p class="text-lg font-bold text-slate-700">${c.n}</p><p class="text-xs text-slate-400 truncate">${c.label}</p></div></button>`).join('')}
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="medSearch" oninput="renderMedEquipTable()" placeholder="ค้นหารหัส/ชื่ออุปกรณ์..." class="input-field pl-9">
+      </div>
+      ${canManage?`<button onclick="openMedEquipModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มอุปกรณ์</button>`:''}
+    </div>
+    <p class="text-xs text-slate-400 mb-4">ทะเบียนนี้ใช้สำหรับยืม-คืนอุปกรณ์การแพทย์เท่านั้น แยกจากทะเบียนครุภัณฑ์</p>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">รหัส</th><th class="py-2 pr-3">อุปกรณ์</th><th class="py-2 pr-3">ยี่ห้อ/รุ่น</th><th class="py-2 pr-3">Serial</th><th class="py-2 pr-3">ที่เก็บ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2">จัดการ</th>
+    </tr></thead><tbody id="medEquipBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderMedEquipTable();
+}
+
+function setMedFilter(k){ medStatusFilter = k; renderMedEquipTable(); }
+
+function renderMedEquipTable(){
+  const canManage = state.user.role !== 'employee';
+  const q = ($('#medSearch')?.value||'').toLowerCase();
+  $all('.med-card').forEach(b=>{ const on = b.dataset.mfilter === medStatusFilter; b.classList.toggle('ring-sky-300', on); b.classList.toggle('ring-transparent', !on); });
+  const list = state.medEquipment.slice().sort((a,b)=>String(a.equipment_code).localeCompare(String(b.equipment_code)))
+    .filter(e=>(!medStatusFilter || medEquipStatus(e)===medStatusFilter) && (!q || (e.equipment_code||'').toLowerCase().includes(q) || (e.name||'').toLowerCase().includes(q) || (e.serial_number||'').toLowerCase().includes(q)));
+  $('#medEquipBody').innerHTML = list.map(e=>{
+    const loan = activeMedLoanOf(e.id);
+    return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 font-medium text-slate-600 whitespace-nowrap">${escapeHtml(e.equipment_code)}</td>
+      <td class="py-2 pr-3"><div class="flex items-center gap-2">
+        <div class="w-9 h-9 rounded-lg overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${e.image_url?`<img src="${escapeHtml(e.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="stethoscope" class="w-4 h-4 text-slate-300"></i>`}</div>
+        <span class="text-slate-700">${escapeHtml(e.name)}</span></div></td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(e.brand_model||'-')}</td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(e.serial_number||'-')}</td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(e.location||'-')}</td>
+      <td class="py-2 pr-3">${statusBadge(medEquipStatus(e))}${loan?`<p class="text-[11px] text-slate-400 mt-0.5">${escapeHtml(loan.borrower_name)} · คืนภายใน ${fmtDateOnly(loan.due_date)}${isMedLoanOverdue(loan)?' <span class="text-rose-500">(เกินกำหนด)</span>':''}</p>`:''}</td>
+      <td class="py-2"><div class="flex gap-2">
+        <button onclick="openMedHistory('${e.id}')" class="w-8 h-8 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center" title="ประวัติการยืม-คืน"><i data-lucide="history" class="w-4 h-4"></i></button>
+        ${canManage?`<button onclick="openMedEquipModal('${e.id}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center" title="แก้ไข"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+        <button onclick="deleteMedEquip('${e.id}')" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+      </div></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="7" class="py-8 text-center text-slate-300">ไม่พบอุปกรณ์การแพทย์</td></tr>`;
+  lucide.createIcons();
+}
+
+function openMedEquipModal(id){
+  const e = id ? state.medEquipment.find(x=>x.id===id) : null;
+  if(id && !e) return;
+  const suggested = e ? e.equipment_code : nextSeqCodes(fyPrefix('MED'), state.medEquipment.map(x=>x.equipment_code))[0];
+  openModal(e ? 'แก้ไขอุปกรณ์การแพทย์' : 'เพิ่มอุปกรณ์การแพทย์', `
+    <form id="medEquipForm" class="space-y-3">
+      <div>
+        <label class="text-sm text-slate-500">รูปภาพ</label>
+        <div class="flex items-center gap-3 mt-1">
+          <div id="medImgPreview" class="w-20 h-20 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">${e&&e.image_url?`<img src="${escapeHtml(e.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="image" class="w-7 h-7 text-slate-300"></i>`}</div>
+          <input type="file" id="med_image" accept="image/*" class="text-xs min-w-0" onchange="previewFile(this,'medImgPreview')">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-sm text-slate-500">รหัสอุปกรณ์ * <span class="text-xs text-slate-300">(ห้ามซ้ำ)</span></label><input id="med_code" required value="${escapeHtml(suggested)}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ชื่ออุปกรณ์ *</label><input id="med_name" required value="${escapeHtml(e?.name||'')}" placeholder="เช่น รถเข็นผู้ป่วย" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ยี่ห้อ/รุ่น</label><input id="med_brand" value="${escapeHtml(e?.brand_model||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">Serial Number</label><input id="med_serial" value="${escapeHtml(e?.serial_number||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ที่เก็บ</label><input id="med_location" value="${escapeHtml(e?.location||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">สถานะ</label><select id="med_status" class="input-field"><option ${(!e||e.status==='พร้อมใช้งาน')?'selected':''}>พร้อมใช้งาน</option><option ${e&&e.status==='ไม่พร้อมใช้งาน'?'selected':''}>ไม่พร้อมใช้งาน</option></select></div>
+      </div>
+      <div><label class="text-sm text-slate-500">หมายเหตุ</label><textarea id="med_note" rows="2" class="input-field">${escapeHtml(e?.note||'')}</textarea></div>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">บันทึก</button></div>
+    </form>
+  `);
+  $('#medEquipForm').onsubmit = ev => submitMedEquip(ev, e);
+}
+
+async function submitMedEquip(ev, record){
+  ev.preventDefault();
+  const code = $('#med_code').value.trim();
+  const name = $('#med_name').value.trim();
+  if(!code || !name){ showToast('กรุณากรอกรหัสและชื่ออุปกรณ์','error'); return; }
+  if(medEquipCodeTaken(code, record?.id)){ showToast(`รหัสอุปกรณ์ "${code}" ซ้ำกับที่มีอยู่แล้ว`,'error'); return; }
+  showLoader();
+  try{
+    const payload = {
+      equipment_code: code, name,
+      brand_model: $('#med_brand').value.trim() || null,
+      serial_number: $('#med_serial').value.trim() || null,
+      location: $('#med_location').value.trim() || null,
+      status: $('#med_status').value,
+      note: $('#med_note').value.trim() || null,
+    };
+    const file = $('#med_image').files[0];
+    if(file) payload.image_url = await uploadImage(file, 'medical');
+    if(record){
+      const { data, error } = await dbClient.from('medical_equipment').update(payload).eq('id', record.id).select().single();
+      if(error) throw error;
+      Object.assign(record, data);
+    } else {
+      const { data, error } = await dbClient.from('medical_equipment').insert({ ...payload, created_by: state.user.id }).select().single();
+      if(error) throw error;
+      state.medEquipment.unshift(data);
+    }
+    closeModal(); refreshMedView(); showToast('บันทึกสำเร็จ','success');
+  }catch(err){ showToast(/duplicate|unique/i.test(err.message||'') ? 'บันทึกไม่สำเร็จ: รหัสอุปกรณ์ซ้ำ' : 'บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+function deleteMedEquip(id){
+  const e = state.medEquipment.find(x=>x.id===id);
+  if(!e) return;
+  if(state.medLoans.some(l=>l.equipment_id===id)){
+    showToast('ลบไม่ได้ เพราะมีประวัติการยืม-คืน ให้เปลี่ยนสถานะเป็น "ไม่พร้อมใช้งาน" แทน','error');
+    return;
+  }
+  confirmAction(`ยืนยันการลบอุปกรณ์ ${e.equipment_code} ${e.name} ใช่หรือไม่?`, async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('medical_equipment').delete().eq('id', id);
+      if(error) throw error;
+      state.medEquipment = state.medEquipment.filter(x=>x.id!==id);
+      refreshMedView(); showToast('ลบสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+function openMedHistory(id){
+  const e = state.medEquipment.find(x=>x.id===id);
+  if(!e) return;
+  const loans = state.medLoans.filter(l=>l.equipment_id===id).slice().sort((a,b)=>String(b.loan_date).localeCompare(String(a.loan_date)) || new Date(b.created_at)-new Date(a.created_at));
+  openModal(`ประวัติการยืม-คืน ${e.equipment_code}`, `
+    <p class="text-sm text-slate-500 mb-3">${escapeHtml(e.name)} · ยืมทั้งหมด ${loans.length} ครั้ง</p>
+    <div class="space-y-2 max-h-80 overflow-y-auto">
+      ${loans.map(l=>`<div class="bg-slate-50 rounded-xl px-3 py-2 text-sm">
+        <div class="flex items-center justify-between gap-2"><span class="font-medium text-slate-700 truncate">${escapeHtml(l.borrower_name)}</span>${statusBadge(l.status)}</div>
+        <p class="text-xs text-slate-400">${escapeHtml(l.loan_code)} · ยืม ${fmtDateOnly(l.loan_date)} · กำหนดคืน ${fmtDateOnly(l.due_date)}${l.returned_at?' · คืน '+fmtDateOnly(l.returned_at):''}${l.return_condition?' · '+escapeHtml(l.return_condition):''}</p>
+      </div>`).join('') || '<p class="text-center text-slate-300 py-6 text-sm">ยังไม่มีประวัติการยืม</p>'}
+    </div>
+  `, 'max-w-lg', true);
+}
+
+// ---------- ยืม ----------
+function medLoanTableHtml(list, { withAction }){
+  return `<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+    <th class="py-2 pr-3">เลขที่</th><th class="py-2 pr-3">อุปกรณ์</th><th class="py-2 pr-3">ผู้ยืม</th><th class="py-2 pr-3">วันที่ยืม</th><th class="py-2 pr-3">กำหนดคืน</th>${withAction?'<th class="py-2"></th>':''}
+  </tr></thead><tbody>${list.map(l=>`<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+    <td class="py-2 pr-3 font-medium text-slate-600 whitespace-nowrap">${escapeHtml(l.loan_code)}</td>
+    <td class="py-2 pr-3">${escapeHtml(medEquipLabel(l.equipment_id))}</td>
+    <td class="py-2 pr-3">${escapeHtml(l.borrower_name)}${l.borrower_phone?`<p class="text-[11px] text-slate-400">โทร. ${escapeHtml(l.borrower_phone)}</p>`:''}</td>
+    <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtDateOnly(l.loan_date)}</td>
+    <td class="py-2 pr-3 whitespace-nowrap ${isMedLoanOverdue(l)?'text-rose-500 font-medium':'text-slate-500'}">${fmtDateOnly(l.due_date)}${isMedLoanOverdue(l)?' (เกินกำหนด)':''}</td>
+    ${withAction?`<td class="py-2"><button onclick="openMedReturnModal('${l.id}')" class="btn-primary !py-1.5 !px-3 text-xs">รับคืน</button></td>`:''}
+  </tr>`).join('') || `<tr><td colspan="${withAction?6:5}" class="py-8 text-center text-slate-300">ไม่มีรายการที่กำลังยืม</td></tr>`}</tbody></table></div>`;
+}
+
+function renderMedLoan(){
+  const available = state.medEquipment.filter(e=>e.status==='พร้อมใช้งาน' && !activeMedLoanOf(e.id))
+    .sort((a,b)=>String(a.equipment_code).localeCompare(String(b.equipment_code)));
+  const active = state.medLoans.filter(l=>l.status==='ยืมอยู่').sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
+  $('#mainContent').innerHTML = `
+    <div class="grid lg:grid-cols-3 gap-5">
+      <div class="card lg:col-span-1 h-fit">
+        <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="hand-helping" class="w-5 h-5 text-violet-400"></i>บันทึกการยืมอุปกรณ์</h3>
+        ${available.length ? `<form id="medLoanForm" class="space-y-3">
+          <div><label class="text-sm text-slate-500">อุปกรณ์ที่ให้ยืม *</label>
+            <select id="ml_equipment" required class="input-field"><option value="">- เลือกอุปกรณ์ -</option>${available.map(e=>`<option value="${e.id}">${escapeHtml(e.equipment_code)} ${escapeHtml(e.name)}</option>`).join('')}</select></div>
+          <div><label class="text-sm text-slate-500">ชื่อผู้ยืม *</label><input id="ml_name" required class="input-field"></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-sm text-slate-500">เบอร์โทร</label><input id="ml_phone" class="input-field"></div>
+            <div><label class="text-sm text-slate-500">วันที่ยืม *</label><input id="ml_date" type="date" required value="${todayStr()}" class="input-field"></div>
+          </div>
+          <div><label class="text-sm text-slate-500">ที่อยู่ผู้ยืม</label><input id="ml_address" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">กำหนดคืน *</label><input id="ml_due" type="date" required value="${addDaysStr(7)}" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">วัตถุประสงค์/ผู้ป่วยที่ใช้</label><textarea id="ml_purpose" rows="2" class="input-field"></textarea></div>
+          <button type="submit" class="btn-primary w-full justify-center gap-2"><i data-lucide="check" class="w-4 h-4"></i>บันทึกการยืม</button>
+        </form>` : `<p class="text-sm text-slate-400 py-6 text-center">ไม่มีอุปกรณ์ที่พร้อมให้ยืมในขณะนี้</p>`}
+      </div>
+      <div class="card lg:col-span-2">
+        <h3 class="font-semibold text-slate-600 mb-3">อุปกรณ์ที่กำลังถูกยืม (${active.length} รายการ)</h3>
+        ${medLoanTableHtml(active, { withAction:false })}
+      </div>
+    </div>
+  `;
+  lucide.createIcons();
+  if($('#medLoanForm')) $('#medLoanForm').onsubmit = submitMedLoan;
+}
+
+async function submitMedLoan(e){
+  e.preventDefault();
+  const equipmentId = $('#ml_equipment').value;
+  const name = $('#ml_name').value.trim();
+  const loanDate = $('#ml_date').value;
+  const dueDate = $('#ml_due').value;
+  if(!equipmentId || !name){ showToast('กรุณาเลือกอุปกรณ์และกรอกชื่อผู้ยืม','error'); return; }
+  if(dueDate < loanDate){ showToast('กำหนดคืนต้องไม่ก่อนวันที่ยืม','error'); return; }
+  showLoader();
+  try{
+    const eq = state.medEquipment.find(x=>x.id===equipmentId);
+    if(!eq || eq.status!=='พร้อมใช้งาน' || activeMedLoanOf(equipmentId)) throw new Error('อุปกรณ์นี้ไม่พร้อมให้ยืม');
+    const code = nextSeqCodes(fyPrefix('ML'), state.medLoans.map(l=>l.loan_code))[0];
+    const { data, error } = await dbClient.from('medical_loans').insert({
+      loan_code: code, equipment_id: equipmentId, borrower_name: name,
+      borrower_phone: $('#ml_phone').value.trim() || null,
+      borrower_address: $('#ml_address').value.trim() || null,
+      purpose: $('#ml_purpose').value.trim() || null,
+      loan_date: loanDate, due_date: dueDate, status: 'ยืมอยู่', lent_by: state.user.id,
+    }).select().single();
+    if(error) throw error;
+    state.medLoans.unshift(data);
+    refreshMedView();
+    showToast(`บันทึกการยืมสำเร็จ (${code})`,'success');
+  }catch(err){ showToast(/duplicate|unique/i.test(err.message||'') ? 'อุปกรณ์นี้ถูกยืมอยู่แล้ว' : 'บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+// ---------- คืน ----------
+function renderMedReturn(){
+  $('#mainContent').innerHTML = `
+    <div class="relative w-full sm:w-72 mb-4">
+      <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+      <input id="medRetSearch" oninput="renderMedReturnTables()" placeholder="ค้นหาเลขที่/อุปกรณ์/ผู้ยืม..." class="input-field pl-9">
+    </div>
+    <div class="card mb-5"><h3 class="font-semibold text-slate-600 mb-3">รอรับคืน (<span id="medPendCount">0</span> รายการ)</h3><div id="medPending"></div></div>
+    <div class="card"><h3 class="font-semibold text-slate-600 mb-3">ประวัติการรับคืน</h3><div id="medReturned"></div></div>
+  `;
+  lucide.createIcons();
+  renderMedReturnTables();
+}
+
+function renderMedReturnTables(){
+  const q = ($('#medRetSearch')?.value||'').toLowerCase();
+  const match = l => !q || (l.loan_code||'').toLowerCase().includes(q) || (l.borrower_name||'').toLowerCase().includes(q) || medEquipLabel(l.equipment_id).toLowerCase().includes(q);
+  const pending = state.medLoans.filter(l=>l.status==='ยืมอยู่' && match(l)).sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
+  const done = state.medLoans.filter(l=>l.status==='คืนแล้ว' && match(l)).sort((a,b)=>String(b.returned_at).localeCompare(String(a.returned_at)));
+  $('#medPendCount').textContent = pending.length;
+  $('#medPending').innerHTML = medLoanTableHtml(pending, { withAction:true });
+  $('#medReturned').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+    <th class="py-2 pr-3">เลขที่</th><th class="py-2 pr-3">อุปกรณ์</th><th class="py-2 pr-3">ผู้ยืม</th><th class="py-2 pr-3">วันที่ยืม</th><th class="py-2 pr-3">วันที่คืน</th><th class="py-2 pr-3">สภาพ</th><th class="py-2">หมายเหตุ</th>
+  </tr></thead><tbody>${done.map(l=>`<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+    <td class="py-2 pr-3 font-medium text-slate-600 whitespace-nowrap">${escapeHtml(l.loan_code)}</td>
+    <td class="py-2 pr-3">${escapeHtml(medEquipLabel(l.equipment_id))}</td>
+    <td class="py-2 pr-3">${escapeHtml(l.borrower_name)}</td>
+    <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtDateOnly(l.loan_date)}</td>
+    <td class="py-2 pr-3 text-slate-500 whitespace-nowrap">${fmtDateOnly(l.returned_at)}</td>
+    <td class="py-2 pr-3 ${l.return_condition==='ชำรุด/ต้องซ่อม'?'text-rose-500':'text-slate-500'}">${escapeHtml(l.return_condition||'-')}</td>
+    <td class="py-2 text-slate-400">${escapeHtml(l.return_note||'-')}</td>
+  </tr>`).join('') || '<tr><td colspan="7" class="py-8 text-center text-slate-300">ยังไม่มีประวัติการรับคืน</td></tr>'}</tbody></table></div>`;
+  lucide.createIcons();
+}
+
+function openMedReturnModal(id){
+  const l = state.medLoans.find(x=>x.id===id);
+  if(!l || l.status!=='ยืมอยู่') return;
+  openModal(`รับคืนอุปกรณ์ ${l.loan_code}`, `
+    <p class="text-sm text-slate-500 mb-3">${escapeHtml(medEquipLabel(l.equipment_id))}<br>ผู้ยืม ${escapeHtml(l.borrower_name)} · ยืมเมื่อ ${fmtDateOnly(l.loan_date)} · กำหนดคืน ${fmtDateOnly(l.due_date)}${isMedLoanOverdue(l)?' <span class="text-rose-500">(เกินกำหนด)</span>':''}</p>
+    <form id="medReturnForm" class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-sm text-slate-500">วันที่คืน *</label><input id="mr_date" type="date" required min="${l.loan_date}" value="${todayStr() < l.loan_date ? l.loan_date : todayStr()}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">สภาพอุปกรณ์ *</label><select id="mr_cond" class="input-field">${MED_CONDITIONS.map(c=>`<option>${c}</option>`).join('')}</select></div>
+      </div>
+      <div><label class="text-sm text-slate-500">หมายเหตุ</label><textarea id="mr_note" rows="2" class="input-field"></textarea></div>
+      <p class="text-xs text-slate-400">ถ้าเลือก "ชำรุด/ต้องซ่อม" สถานะอุปกรณ์จะเปลี่ยนเป็น "ไม่พร้อมใช้งาน" และจะไม่ถูกเสนอในหน้ายืมจนกว่าจะแก้ไขที่ทะเบียน</p>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">ยืนยันรับคืน</button></div>
+    </form>
+  `);
+  $('#medReturnForm').onsubmit = ev => submitMedReturn(ev, l);
+}
+
+async function submitMedReturn(ev, l){
+  ev.preventDefault();
+  const returnedAt = $('#mr_date').value;
+  const cond = $('#mr_cond').value;
+  if(returnedAt < l.loan_date){ showToast('วันที่คืนต้องไม่ก่อนวันที่ยืม','error'); return; }
+  const note = $('#mr_note').value.trim() || null;
+  closeModal(); showLoader();
+  try{
+    const { data, error } = await dbClient.from('medical_loans').update({ status:'คืนแล้ว', returned_at:returnedAt, return_condition:cond, return_note:note, received_by:state.user.id }).eq('id', l.id).select().single();
+    if(error) throw error;
+    Object.assign(l, data);
+    if(cond === 'ชำรุด/ต้องซ่อม'){
+      const eq = state.medEquipment.find(x=>x.id===l.equipment_id);
+      const { data: ed, error: e2 } = await dbClient.from('medical_equipment').update({ status:'ไม่พร้อมใช้งาน' }).eq('id', l.equipment_id).select().single();
+      if(e2) throw e2;
+      if(eq) Object.assign(eq, ed);
+    }
+    refreshMedView(); showToast('บันทึกการรับคืนแล้ว','success');
+  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
 }
 
 // ---------------------------------------------------------------------------
