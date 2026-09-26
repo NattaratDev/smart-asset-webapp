@@ -254,6 +254,37 @@ function flatMenuKeys(role){
   return out;
 }
 
+const MATERIAL_CATEGORIES = [
+  'วัสดุสำนักงาน',
+  'วัสดุไฟฟ้าและวิทยุ',
+  'วัสดุงานบ้านงานครัว',
+  'วัสดุก่อสร้าง',
+  'วัสดุยานพาหนะและขนส่ง',
+  'วัสดุเชื้อเพลิงและหล่อลื่น',
+  'วัสดุการเกษตร',
+  'วัสดุวิทยาศาสตร์หรือการแพทย์',
+  'วัสดุโฆษณาและเผยแพร่',
+];
+
+function getCurrentFiscalYearBE(){
+  const now = new Date();
+  const beYear = now.getFullYear() + 543;
+  return (now.getMonth() + 1) >= 10 ? beYear + 1 : beYear;
+}
+
+function generateNextItemCode(){
+  const fy = getCurrentFiscalYearBE();
+  const prefix = `MAT-${fy}-`;
+  let maxSeq = 0;
+  state.materials.forEach(m=>{
+    if(m.item_code && m.item_code.startsWith(prefix)){
+      const num = parseInt(m.item_code.slice(prefix.length), 10);
+      if(!isNaN(num) && num > maxSeq) maxSeq = num;
+    }
+  });
+  return `${prefix}${String(maxSeq + 1).padStart(4,'0')}`;
+}
+
 // ---------------------------------------------------------------------------
 // Utilities
 // ---------------------------------------------------------------------------
@@ -863,16 +894,22 @@ function renderMaterials(){
   const canManage = state.user.role !== 'employee';
   $('#mainContent').innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-      <div class="relative w-full sm:w-72">
-        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
-        <input id="matSearch" oninput="renderMaterialGrid()" placeholder="ค้นหาวัสดุ..." class="input-field pl-9">
+      <div class="flex flex-wrap gap-2 flex-1">
+        <div class="relative w-full sm:w-64">
+          <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input id="matSearch" oninput="renderMaterialGrid()" placeholder="ค้นหาวัสดุ..." class="input-field pl-9">
+        </div>
+        <select id="matCategoryFilter" onchange="renderMaterialGrid()" class="input-field w-full sm:w-56">
+          <option value="">ทุกหมวดหมู่</option>
+          ${MATERIAL_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+        </select>
       </div>
       <div class="flex gap-2">
         ${state.user.role==='admin'?`<button onclick="exportCSV(state.materials,'materials.csv',['item_code','name','category','unit','quantity','min_quantity'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
         ${canManage?`<button onclick="openMaterialModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มวัสดุ</button>`:''}
       </div>
     </div>
-    <div id="matGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+    <div id="matGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"></div>
   `;
   lucide.createIcons();
   renderMaterialGrid();
@@ -880,21 +917,32 @@ function renderMaterials(){
 
 function renderMaterialGrid(){
   const q = ($('#matSearch')?.value||'').toLowerCase();
+  const cat = $('#matCategoryFilter')?.value || '';
   const canManage = state.user.role !== 'employee';
-  const list = state.materials.filter(m=>!q || m.name.toLowerCase().includes(q) || (m.category||'').toLowerCase().includes(q) || (m.item_code||'').toLowerCase().includes(q));
+  const list = state.materials.filter(m=>{
+    const matchQ = !q || m.name.toLowerCase().includes(q) || (m.category||'').toLowerCase().includes(q) || (m.item_code||'').toLowerCase().includes(q);
+    const matchCat = !cat || m.category === cat;
+    return matchQ && matchCat;
+  });
   $('#matGrid').innerHTML = list.map(m=>{
     const low = Number(m.quantity) <= Number(m.min_quantity);
-    return `<div class="card">
-      <div class="w-full h-28 rounded-2xl overflow-hidden bg-slate-100 mb-3 flex items-center justify-center">${m.image_url?`<img src="${escapeHtml(m.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="package" class="w-8 h-8 text-slate-300"></i>`}</div>
-      <p class="text-xs text-slate-400">${escapeHtml(m.item_code||'-')}</p>
-      <p class="font-medium text-slate-700 truncate">${escapeHtml(m.name)}</p>
-      <p class="text-xs text-slate-400 mb-2">${escapeHtml(m.category||'ไม่ระบุหมวดหมู่')}</p>
-      <div class="mb-3"><span class="badge ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${m.quantity} ${escapeHtml(m.unit)}${low?' (ใกล้หมด)':''}</span></div>
-      <div class="flex gap-2">
-        <button onclick="openMaterialIssueModal('${m.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="send" class="w-3.5 h-3.5"></i>ขอเบิก</button>
-        ${canManage?`<button onclick="openMaterialModal('${m.id}')" class="w-9 h-9 rounded-xl bg-sky-50 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="pencil" class="w-4 h-4"></i></button>
-        <button onclick="deleteMaterial('${m.id}')" class="w-9 h-9 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+    return `<div class="card !p-3 ${m.is_active===false?'opacity-60':''}">
+      <div class="flex items-center gap-2 mb-2">
+        <div class="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${m.image_url?`<img src="${escapeHtml(m.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="package" class="w-4 h-4 text-slate-300"></i>`}</div>
+        <div class="min-w-0 flex-1">
+          <p class="text-[10px] text-slate-400 truncate">${escapeHtml(m.item_code||'-')}</p>
+          <p class="text-sm font-medium text-slate-700 truncate" title="${escapeHtml(m.name)}">${escapeHtml(m.name)}</p>
+        </div>
       </div>
+      <p class="text-[11px] text-slate-400 truncate mb-1.5">${escapeHtml(m.category||'ไม่ระบุหมวดหมู่')}</p>
+      <div class="flex items-center gap-1 flex-wrap mb-2">
+        <span class="badge !px-2 !py-0.5 text-[11px] ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${m.quantity} ${escapeHtml(m.unit)}${low?' (ใกล้หมด)':''}</span>
+        ${m.is_active===false?'<span class="badge !px-2 !py-0.5 text-[10px] bg-slate-200 text-slate-500">ปิดใช้งาน</span>':''}
+      </div>
+      ${canManage?`<div class="flex gap-1.5">
+        <button onclick="openMaterialModal('${m.id}')" class="flex-1 h-7 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+        <button onclick="deleteMaterial('${m.id}')" class="flex-1 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+      </div>`:''}
     </div>`;
   }).join('') || `<p class="col-span-full text-center text-slate-300 py-10">ไม่พบข้อมูลวัสดุ</p>`;
   lucide.createIcons();
@@ -903,7 +951,9 @@ function renderMaterialGrid(){
 function openMaterialModal(id){
   const record = id ? state.materials.find(m=>m.id===id) : null;
   const canEdit = state.user.role !== 'employee';
-  const categories = [...new Set(state.materials.map(m=>m.category).filter(Boolean))];
+  const itemCode = record ? record.item_code : generateNextItemCode();
+  const categoryOptions = MATERIAL_CATEGORIES.slice();
+  if(record?.category && !categoryOptions.includes(record.category)) categoryOptions.unshift(record.category);
   openModal(record?'แก้ไขข้อมูลวัสดุ':'เพิ่มวัสดุใหม่', `
     <form id="materialForm" class="space-y-3">
       <div>
@@ -914,19 +964,24 @@ function openMaterialModal(id){
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="text-sm text-slate-500">รหัสวัสดุ</label><input id="f_item_code" value="${escapeHtml(record?.item_code||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">รหัสวัสดุ (สร้างอัตโนมัติ)</label><input id="f_item_code" value="${escapeHtml(itemCode)}" readonly class="input-field opacity-70 cursor-not-allowed"></div>
         <div><label class="text-sm text-slate-500">ชื่อวัสดุ *</label><input id="f_name" required value="${escapeHtml(record?.name||'')}" class="input-field"></div>
-        <div><label class="text-sm text-slate-500">หมวดหมู่</label><input id="f_category" value="${escapeHtml(record?.category||'')}" class="input-field" list="matCategoryList"></div>
+        <div><label class="text-sm text-slate-500">หมวดหมู่</label>
+          <select id="f_category" class="input-field">
+            ${categoryOptions.map(c=>`<option value="${escapeHtml(c)}" ${record?.category===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+          </select>
+        </div>
         <div><label class="text-sm text-slate-500">หน่วยนับ</label><input id="f_unit" value="${escapeHtml(record?.unit||'ชิ้น')}" class="input-field"></div>
-        <div><label class="text-sm text-slate-500">จำนวนคงเหลือ</label><input id="f_quantity" type="number" step="0.01" value="${record?.quantity??0}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">จำนวนคงเหลือ</label><input id="f_quantity" type="number" step="0.01" value="${record?.quantity??0}" class="input-field" ${record?'readonly':''}></div>
         <div><label class="text-sm text-slate-500">จุดสั่งซื้อขั้นต่ำ</label><input id="f_min_quantity" type="number" step="0.01" value="${record?.min_quantity??0}" class="input-field"></div>
       </div>
       <div><label class="text-sm text-slate-500">รายละเอียด</label><textarea id="f_description" rows="2" class="input-field">${escapeHtml(record?.description||'')}</textarea></div>
-      <datalist id="matCategoryList">${categories.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist>
+      ${record?`<label class="flex items-center gap-2 text-sm text-slate-500"><input type="checkbox" id="f_is_active" ${record?.is_active!==false?'checked':''} class="w-4 h-4 rounded">เปิดใช้งานวัสดุนี้</label>`:''}
+      ${record?'<p class="text-xs text-slate-400">หมายเหตุ: ปรับจำนวนคงเหลือผ่านเมนู "รับเข้าวัสดุ" หรือ "เบิกวัสดุ" เพื่อให้ Stock Card ถูกต้อง</p>':''}
       <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">บันทึก</button></div>
     </form>
   `);
-  if(!canEdit){ $all('#materialForm input, #materialForm textarea').forEach(el=>el.disabled=true); }
+  if(!canEdit){ $all('#materialForm input, #materialForm textarea, #materialForm select').forEach(el=>el.disabled=true); }
   $('#materialForm').onsubmit = e => submitMaterialForm(e, record);
 }
 
@@ -935,17 +990,20 @@ async function submitMaterialForm(e, record){
   showLoader();
   try{
     const payload = {
-      item_code: $('#f_item_code').value.trim() || null,
       name: $('#f_name').value.trim(),
-      category: $('#f_category').value.trim() || null,
+      category: $('#f_category').value,
       unit: $('#f_unit').value.trim() || 'ชิ้น',
-      quantity: Number($('#f_quantity').value) || 0,
       min_quantity: Number($('#f_min_quantity').value) || 0,
       description: $('#f_description').value.trim() || null,
     };
+    if(!record){
+      payload.item_code = $('#f_item_code').value;
+      payload.quantity = Number($('#f_quantity').value) || 0;
+    }
     const file = $('#matImageFile').files[0];
     if(file) payload.image_url = await uploadImage(file, 'materials');
     if(record){
+      payload.is_active = $('#f_is_active').checked;
       const { data, error } = await dbClient.from('materials').update(payload).eq('id', record.id).select().single();
       if(error) throw error;
       Object.assign(record, data);
@@ -967,6 +1025,22 @@ async function submitMaterialForm(e, record){
 }
 
 function deleteMaterial(id){
+  const mat = state.materials.find(m=>m.id===id);
+  if(!mat) return;
+  if(Number(mat.quantity) > 0){
+    confirmAction(`ไม่สามารถลบวัสดุนี้ได้เนื่องจากยังมีคงเหลือ ${mat.quantity} ${mat.unit} ต้องการปิดใช้งานวัสดุนี้แทนหรือไม่?`, async ()=>{
+      showLoader();
+      try{
+        const { data, error } = await dbClient.from('materials').update({is_active:false}).eq('id', id).select().single();
+        if(error) throw error;
+        Object.assign(mat, data);
+        renderMaterialGrid();
+        showToast('ปิดใช้งานวัสดุสำเร็จ','success');
+      }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
+      finally{ hideLoader(); }
+    });
+    return;
+  }
   confirmAction('ยืนยันการลบวัสดุนี้ใช่หรือไม่?', async ()=>{
     showLoader();
     try{
@@ -1134,7 +1208,7 @@ function toggleRequestItemField(materialId, assetId){
   const type = $('#f_request_type').value;
   const box = $('#requestItemField');
   if(type === 'เบิกวัสดุ'){
-    box.innerHTML = `<label class="text-sm text-slate-500">รายการวัสดุ</label><select id="f_material_id" class="input-field">${state.materials.map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>`;
+    box.innerHTML = `<label class="text-sm text-slate-500">รายการวัสดุ</label><select id="f_material_id" class="input-field">${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>`;
   } else if(type === 'ยืมครุภัณฑ์' || type === 'แจ้งซ่อม'){
     box.innerHTML = `<label class="text-sm text-slate-500">รายการครุภัณฑ์</label><select id="f_asset_id" class="input-field">${state.assets.map(a=>`<option value="${a.id}" ${assetId===a.id?'selected':''}>${escapeHtml(a.name)} (${escapeHtml(a.asset_code||'-')})</option>`).join('')}</select>`;
   } else {
@@ -1273,7 +1347,7 @@ function renderMatReceive(){
         <form id="receiveForm" class="space-y-3">
           <div><label class="text-sm text-slate-500">รายการวัสดุ</label>
             <select id="rc_material_id" class="input-field" required>
-              ${state.materials.map(m=>`<option value="${m.id}">${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}
+              ${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}">${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}
             </select>
           </div>
           <div><label class="text-sm text-slate-500">จำนวนที่รับเข้า</label><input id="rc_quantity" type="number" min="0.01" step="0.01" required class="input-field"></div>
@@ -1388,7 +1462,7 @@ function openMaterialIssueModal(materialId){
   openModal('เบิกวัสดุ', `
     <form id="issueForm" class="space-y-3">
       <div><label class="text-sm text-slate-500">รายการวัสดุ</label>
-        <select id="im_material_id" class="input-field">${state.materials.map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>
+        <select id="im_material_id" class="input-field">${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>
       </div>
       <div><label class="text-sm text-slate-500">จำนวน</label><input id="im_quantity" type="number" min="1" value="1" class="input-field"></div>
       <div><label class="text-sm text-slate-500">เหตุผล/รายละเอียด</label><textarea id="im_reason" rows="2" required class="input-field" placeholder="ระบุเหตุผลในการขอเบิก..."></textarea></div>
@@ -1449,7 +1523,7 @@ function renderMatCardTable(){
     const low = Number(m.quantity) <= Number(m.min_quantity);
     return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
       <td class="py-2 pr-3 text-slate-500">${escapeHtml(m.item_code||'-')}</td>
-      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(m.name)}</td>
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(m.name)}${m.is_active===false?' <span class="badge !px-2 !py-0.5 text-[10px] bg-slate-200 text-slate-500">ปิดใช้งาน</span>':''}</td>
       <td class="py-2 pr-3 text-slate-500">${escapeHtml(m.category||'-')}</td>
       <td class="py-2 pr-3"><span class="badge ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${m.quantity} ${escapeHtml(m.unit)}</span></td>
       <td class="py-2 pr-3 text-slate-500">${m.min_quantity} ${escapeHtml(m.unit)}</td>

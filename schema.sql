@@ -53,10 +53,13 @@ create table public.materials (
   min_quantity    numeric not null default 0,
   image_url       text,
   description     text,
+  is_active       boolean not null default true,
   created_by      uuid references public.users(id) on delete set null,
   created_at      timestamptz not null default now(),
   updated_at      timestamptz not null default now()
 );
+
+comment on column public.materials.category is 'หมวดหมู่ตามระเบียบพัสดุ: วัสดุสำนักงาน, วัสดุไฟฟ้าและวิทยุ, วัสดุงานบ้านงานครัว, วัสดุก่อสร้าง, วัสดุยานพาหนะและขนส่ง, วัสดุเชื้อเพลิงและหล่อลื่น, วัสดุการเกษตร, วัสดุวิทยาศาสตร์หรือการแพทย์, วัสดุโฆษณาและเผยแพร่';
 
 -- ----------------------------------------------------------------------------
 -- 4) TABLE: fixed_assets (ครุภัณฑ์)
@@ -232,15 +235,15 @@ values
   ('EMP-004','วิชัย ตั้งใจทำงาน',   'wichai',   encode(digest('wichai123','sha256'),'hex'),   'employee','ฝ่ายบัญชี',              'เจ้าหน้าที่บัญชี',    '080-000-0004','wichai@smartasset.local');
 
 insert into public.materials (item_code, name, category, unit, quantity, min_quantity, description, created_by)
-select 'MAT-001','กระดาษ A4 80 แกรม','เครื่องเขียน','รีม',120,20,'กระดาษถ่ายเอกสาร A4 สีขาว', id from public.users where username='staff'
+select 'MAT-001','กระดาษ A4 80 แกรม','วัสดุสำนักงาน','รีม',120,20,'กระดาษถ่ายเอกสาร A4 สีขาว', id from public.users where username='staff'
 union all
-select 'MAT-002','ปากกาลูกลื่นสีน้ำเงิน','เครื่องเขียน','ด้าม',300,50,'ปากกาลูกลื่น 0.5mm', id from public.users where username='staff'
+select 'MAT-002','ปากกาลูกลื่นสีน้ำเงิน','วัสดุสำนักงาน','ด้าม',300,50,'ปากกาลูกลื่น 0.5mm', id from public.users where username='staff'
 union all
-select 'MAT-003','หมึกพิมพ์ HP 680','อุปกรณ์คอมพิวเตอร์','ตลับ',15,5,'ตลับหมึกพิมพ์อิงค์เจ็ท', id from public.users where username='staff'
+select 'MAT-003','หมึกพิมพ์ HP 680','วัสดุสำนักงาน','ตลับ',15,5,'ตลับหมึกพิมพ์อิงค์เจ็ท', id from public.users where username='staff'
 union all
-select 'MAT-004','แฟ้มเอกสารสันกว้าง','เครื่องเขียน','เล่ม',80,15,'แฟ้มเก็บเอกสาร 3 นิ้ว', id from public.users where username='staff'
+select 'MAT-004','แฟ้มเอกสารสันกว้าง','วัสดุสำนักงาน','เล่ม',80,15,'แฟ้มเก็บเอกสาร 3 นิ้ว', id from public.users where username='staff'
 union all
-select 'MAT-005','น้ำยาทำความสะอาดโต๊ะ','ของใช้ทั่วไป','ขวด',10,10,'สเปรย์ทำความสะอาดพื้นผิว', id from public.users where username='staff';
+select 'MAT-005','น้ำยาทำความสะอาดโต๊ะ','วัสดุงานบ้านงานครัว','ขวด',10,10,'สเปรย์ทำความสะอาดพื้นผิว', id from public.users where username='staff';
 
 insert into public.fixed_assets (asset_code, name, category, brand_model, serial_number, purchase_date, purchase_price, status, location, responsible_user_id, description, created_by)
 select 'AST-001','คอมพิวเตอร์ตั้งโต๊ะ','คอมพิวเตอร์','Dell OptiPlex 3090','SN-DL30910001','2024-03-15'::date,24500::numeric,'ใช้งานปกติ','ห้องธุรการ ชั้น 2', u2.id,'เครื่องคอมพิวเตอร์สำหรับงานเอกสาร', u1.id
