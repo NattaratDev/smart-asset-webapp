@@ -1613,19 +1613,44 @@ function renderTrackTable(){
   lucide.createIcons();
 }
 
-function openIssueCreateModal(){
+async function refreshMaterialsStock(){
+  const { data, error } = await dbClient.from('materials').select('*').order('created_at',{ascending:false});
+  if(!error && data) state.materials = data;
+}
+
+function issueCartQty(materialId){
+  return issueCart.filter(c=>c.material_id===materialId).reduce((s,c)=>s+Number(c.quantity),0);
+}
+
+function updateIssueHint(){
+  const sel = $('#iq_material_id');
+  const hint = $('#iq_hint');
+  if(!sel || !hint) return;
+  const mat = state.materials.find(m=>m.id===sel.value);
+  if(!mat){ hint.textContent=''; return; }
+  const inCart = issueCartQty(mat.id);
+  const available = Math.max(0, Number(mat.quantity) - inCart);
+  hint.innerHTML = available > 0
+    ? `เบิกได้สูงสุด <b class="text-slate-600">${available}</b> ${escapeHtml(mat.unit)} (คงเหลือ ${mat.quantity}${inCart?`, อยู่ในใบเบิกนี้แล้ว ${inCart}`:''})`
+    : `<span class="text-rose-500">ไม่มีวัสดุเหลือให้เบิก (คงเหลือ ${mat.quantity}${inCart?`, อยู่ในใบเบิกนี้แล้ว ${inCart}`:''})</span>`;
+  $('#iq_quantity').max = available;
+}
+
+async function openIssueCreateModal(){
   issueCart = [];
+  await refreshMaterialsStock();
   openModal('สร้างใบเบิกวัสดุใหม่', `
     <div class="space-y-3">
       <div><label class="text-sm text-slate-500">รายการวัสดุ</label>
-        <select id="iq_material_id" class="input-field">
-          ${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}">${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}
+        <select id="iq_material_id" class="input-field" onchange="updateIssueHint()">
+          ${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}" ${Number(m.quantity)<=0?'disabled':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)}${Number(m.quantity)<=0?' - หมด':''})</option>`).join('')}
         </select>
       </div>
       <div class="grid grid-cols-[1fr_auto] gap-2">
         <input id="iq_quantity" type="number" min="1" value="1" class="input-field">
         <button type="button" onclick="addToIssueCart()" class="btn-secondary gap-1"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มรายการ</button>
       </div>
+      <p id="iq_hint" class="text-xs text-slate-400 -mt-1"></p>
       <div id="issueCartBody" class="space-y-2 max-h-56 overflow-y-auto"></div>
       <div><label class="text-sm text-slate-500">เหตุผล/รายละเอียดการเบิก *</label><textarea id="iq_reason" rows="2" required class="input-field" placeholder="ระบุเหตุผลในการขอเบิก..."></textarea></div>
       <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="button" onclick="submitIssueRequest()" class="btn-primary">ส่งใบเบิก</button></div>
@@ -1640,6 +1665,13 @@ function addToIssueCart(){
   if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
   const mat = state.materials.find(m=>m.id===materialId);
   if(!mat) return;
+  const available = Number(mat.quantity) - issueCartQty(materialId);
+  if(qty > available){
+    showToast(available > 0
+      ? `เบิก "${mat.name}" เกินยอดคงเหลือไม่ได้ (เบิกได้สูงสุด ${available} ${mat.unit})`
+      : `"${mat.name}" ไม่มีวัสดุเหลือให้เบิกเพิ่ม`, 'error');
+    return;
+  }
   issueCart.push({ tempId: crypto.randomUUID(), material_id: materialId, material_name: mat.name, unit: mat.unit, quantity: qty });
   $('#iq_quantity').value = 1;
   renderIssueCart();
@@ -1657,6 +1689,7 @@ function renderIssueCart(){
       <button onclick="removeFromIssueCart('${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
     </div>`).join('') || `<p class="text-center text-slate-300 py-4 text-sm">ยังไม่มีรายการ เลือกวัสดุแล้วกด "เพิ่มรายการ"</p>`;
   lucide.createIcons();
+  updateIssueHint();
 }
 
 async function submitIssueRequest(){
@@ -1665,6 +1698,18 @@ async function submitIssueRequest(){
   if(!reason){ showToast('กรุณาระบุเหตุผลการเบิก','error'); return; }
   showLoader();
   try{
+    await refreshMaterialsStock();
+    const totals = {};
+    issueCart.forEach(c=>{ totals[c.material_id] = (totals[c.material_id]||0) + Number(c.quantity); });
+    for(const [mid, total] of Object.entries(totals)){
+      const mat = state.materials.find(m=>m.id===mid);
+      if(!mat || total > Number(mat.quantity)){
+        hideLoader();
+        showToast(`"${mat?.name||'วัสดุ'}" มียอดคงเหลือ ${mat?mat.quantity:0} ไม่พอสำหรับที่ขอเบิก ${total} กรุณาลดจำนวนหรือลบรายการ`,'error');
+        updateIssueHint();
+        return;
+      }
+    }
     const issueCode = generateNextIssueCode();
     const { data: header, error: e1 } = await dbClient.from('material_issue_requests').insert({
       issue_code: issueCode, requester_id: state.user.id, reason, status:'รออนุมัติ'
