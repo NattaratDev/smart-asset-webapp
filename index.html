@@ -1500,7 +1500,7 @@ function openAssetModal(id){
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3">
-        <div><label class="text-sm text-slate-500">รหัสครุภัณฑ์</label><input id="f_asset_code" value="${escapeHtml(record.asset_code||'')}" readonly class="input-field opacity-70 cursor-not-allowed"></div>
+        <div><label class="text-sm text-slate-500">รหัสครุภัณฑ์</label><input id="f_asset_code" required value="${escapeHtml(record.asset_code||'')}" class="input-field"></div>
         <div><label class="text-sm text-slate-500">ชื่อครุภัณฑ์ *</label><input id="f_name" required value="${escapeHtml(record.name||'')}" class="input-field"></div>
         <div><label class="text-sm text-slate-500">ประเภทครุภัณฑ์</label><select id="f_category" class="input-field"><option value="">- ไม่ระบุ -</option>${assetCategoryOptions(record.category).map(c=>`<option value="${escapeHtml(c)}" ${record.category===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select></div>
         <div><label class="text-sm text-slate-500">ยี่ห้อ/รุ่น</label><input id="f_brand_model" value="${escapeHtml(record.brand_model||'')}" class="input-field"></div>
@@ -1542,7 +1542,11 @@ async function submitAssetForm(e, record){
   e.preventDefault();
   showLoader();
   try{
+    const newCode = $('#f_asset_code').value.trim();
+    if(!newCode) throw new Error('กรุณากรอกรหัสครุภัณฑ์');
+    if(assetCodeTaken(newCode, record.id)) throw new Error(`รหัสครุภัณฑ์ "${newCode}" ซ้ำกับที่มีอยู่แล้ว`);
     const payload = {
+      asset_code: newCode,
       name: $('#f_name').value.trim(),
       category: $('#f_category').value.trim() || null,
       brand_model: $('#f_brand_model').value.trim() || null,
@@ -1604,14 +1608,15 @@ function renderAssetReceive(){
       <div class="card lg:col-span-1 h-fit">
         <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="package-plus" class="w-5 h-5 text-emerald-400"></i>เพิ่มครุภัณฑ์ที่รับ</h3>
         <form id="arItemForm" class="space-y-3">
+          <div><label class="text-sm text-slate-500">รหัสครุภัณฑ์ * <span class="text-xs text-slate-300">(กำหนดเอง ห้ามซ้ำ)</span></label><input id="ar_code" required class="input-field" placeholder="เช่น 6730-007-0001-1-3/55"></div>
           <div><label class="text-sm text-slate-500">ชื่อครุภัณฑ์ *</label><input id="ar_name" required class="input-field"></div>
           <div><label class="text-sm text-slate-500">ประเภทครุภัณฑ์ *</label><select id="ar_category" required class="input-field"><option value="">- เลือกประเภท -</option>${ASSET_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select></div>
           <div class="grid grid-cols-2 gap-3">
             <div><label class="text-sm text-slate-500">ยี่ห้อ/รุ่น</label><input id="ar_brand" class="input-field"></div>
             <div><label class="text-sm text-slate-500">Serial Number</label><input id="ar_serial" class="input-field"></div>
-            <div><label class="text-sm text-slate-500">ราคา (บาท)</label><input id="ar_price" type="number" min="0" step="0.01" class="input-field"></div>
+            <div><label class="text-sm text-slate-500">ราคา (บาท) *</label><input id="ar_price" type="number" required min="0.01" step="0.01" class="input-field"></div>
             <div><label class="text-sm text-slate-500">สถานที่ตั้ง</label><input id="ar_location" class="input-field"></div>
-            <div><label class="text-sm text-slate-500">อายุการใช้งาน (ปี)</label><input id="ar_life" type="number" min="1" step="0.5" class="input-field"></div>
+            <div><label class="text-sm text-slate-500">อายุการใช้งาน (ปี) *</label><input id="ar_life" type="number" required min="1" step="0.5" class="input-field"></div>
           </div>
           <div><label class="text-sm text-slate-500">ลักษณะ/คุณสมบัติ</label><input id="ar_desc" class="input-field"></div>
           <button type="submit" class="btn-secondary w-full justify-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มลงตะกร้า</button>
@@ -1648,9 +1653,14 @@ function renderAssetReceive(){
 function addToAssetReceiveCart(e){
   e.preventDefault();
   const name = $('#ar_name').value.trim();
+  const code = $('#ar_code').value.trim();
+  if(!code){ showToast('กรุณากรอกรหัสครุภัณฑ์','error'); return; }
   if(!name){ showToast('กรุณากรอกชื่อครุภัณฑ์','error'); return; }
+  if(!$('#ar_price').value || Number($('#ar_price').value) <= 0){ showToast('กรุณากรอกราคา','error'); return; }
+  if(!$('#ar_life').value || Number($('#ar_life').value) <= 0){ showToast('กรุณากรอกอายุการใช้งาน','error'); return; }
+  if(assetCodeTaken(code) || assetReceiveCart.some(c=>c.code.toLowerCase()===code.toLowerCase())){ showToast(`รหัสครุภัณฑ์ "${code}" ซ้ำกับที่มีอยู่แล้ว`,'error'); return; }
   assetReceiveCart.push({
-    tempId: crypto.randomUUID(), name,
+    tempId: crypto.randomUUID(), code, name,
     category: $('#ar_category').value.trim() || null,
     brand_model: $('#ar_brand').value.trim() || null,
     serial_number: $('#ar_serial').value.trim() || null,
@@ -1664,6 +1674,11 @@ function addToAssetReceiveCart(e){
   showToast('เพิ่มลงตะกร้าแล้ว','info');
 }
 
+function assetCodeTaken(code, exceptId){
+  const c = String(code||'').trim().toLowerCase();
+  return !!c && state.assets.some(a=>a.id!==exceptId && (a.asset_code||'').trim().toLowerCase()===c);
+}
+
 function removeFromAssetReceiveCart(tempId){
   assetReceiveCart = assetReceiveCart.filter(c=>c.tempId !== tempId);
   renderAssetReceiveCart();
@@ -1674,7 +1689,7 @@ function renderAssetReceiveCart(){
   $('#arCartBody').innerHTML = assetReceiveCart.map(c=>`
     <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
       <div class="min-w-0">
-        <p class="text-sm font-medium text-slate-700 truncate">${escapeHtml(c.name)}</p>
+        <p class="text-sm font-medium text-slate-700 truncate"><span class="text-slate-400">${escapeHtml(c.code)}</span> ${escapeHtml(c.name)}</p>
         <p class="text-xs text-slate-400 truncate">${[c.category, c.brand_model, c.serial_number?'S/N '+c.serial_number:'', c.location, c.life?'อายุใช้งาน '+c.life+' ปี':'', c.price!=null?fmtMoney(c.price)+' บาท':''].filter(Boolean).map(escapeHtml).join(' · ') || '-'}</p>
       </div>
       <button onclick="removeFromAssetReceiveCart('${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
@@ -1687,9 +1702,9 @@ function openAssetReceiveConfirm(){
   if(!assetReceiveCart.length) return;
   const total = assetReceiveCart.reduce((s,c)=>s+(c.price||0),0);
   openModal('ยืนยันการรับครุภัณฑ์', `
-    <p class="text-sm text-slate-500 mb-3">กรุณาตรวจสอบให้ถูกต้องก่อนยืนยัน (รวม ${assetReceiveCart.length} รายการ · ${fmtMoney(total)} บาท) ระบบจะออกรหัสครุภัณฑ์ให้อัตโนมัติ</p>
+    <p class="text-sm text-slate-500 mb-3">กรุณาตรวจสอบให้ถูกต้องก่อนยืนยัน (รวม ${assetReceiveCart.length} รายการ · ${fmtMoney(total)} บาท) รหัสครุภัณฑ์เป็นไปตามที่กำหนด</p>
     <div class="max-h-72 overflow-y-auto space-y-2 mb-4">
-      ${assetReceiveCart.map(c=>`<div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm"><span class="text-slate-700 truncate">${escapeHtml(c.name)}</span><span class="text-slate-500 shrink-0">${c.price!=null?fmtMoney(c.price):'-'}</span></div>`).join('')}
+      ${assetReceiveCart.map(c=>`<div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm"><span class="text-slate-700 truncate"><span class="text-slate-400">${escapeHtml(c.code)}</span> ${escapeHtml(c.name)}</span><span class="text-slate-500 shrink-0">${c.price!=null?fmtMoney(c.price):'-'}</span></div>`).join('')}
     </div>
     <div class="flex justify-end gap-2">
       <button type="button" onclick="closeModal()" class="btn-secondary">ย้อนกลับแก้ไข</button>
@@ -1719,9 +1734,8 @@ async function submitAssetReceipt(){
     }).select().single();
     if(e1) throw e1;
     receipt = rc;
-    const codes = nextSeqCodes(fyPrefix('AST'), state.assets.map(a=>a.asset_code), items.length);
     const rows = items.map((c,i)=>({
-      asset_code: codes[i], name: c.name, category: c.category, brand_model: c.brand_model, serial_number: c.serial_number,
+      asset_code: c.code, name: c.name, category: c.category, brand_model: c.brand_model, serial_number: c.serial_number,
       purchase_date: receiveDate, purchase_price: c.price, status:'ใช้งานปกติ', location: c.location,
       description: c.description, useful_life_years: c.life, fund_type: fundType, acquisition_method: acqMethod,
       supplier_name: supplier, supplier_address: supplierAddr, supplier_phone: supplierPhone, doc_ref: docRef,
@@ -1736,7 +1750,7 @@ async function submitAssetReceipt(){
     showToast(`บันทึกรับครุภัณฑ์สำเร็จ ${created.length} รายการ (${receipt.receipt_code})`,'success');
   }catch(err){
     if(receipt){ await dbClient.from('asset_receipts').delete().eq('id', receipt.id); }
-    showToast('บันทึกไม่สำเร็จ: '+err.message,'error');
+    showToast(/duplicate|unique/i.test(err.message||'') ? 'บันทึกไม่สำเร็จ: มีรหัสครุภัณฑ์ซ้ำในระบบ กรุณาตรวจสอบรหัส' : 'บันทึกไม่สำเร็จ: '+err.message,'error');
   }
   finally{ hideLoader(); }
 }
