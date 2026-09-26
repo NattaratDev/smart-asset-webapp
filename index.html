@@ -3061,18 +3061,33 @@ function buildAssetReportCfg(kind){
   };
 }
 
+// สถานะในตารางรายงานแสดงเป็นป้าย (ข้อความในวงเล็บต่อท้ายแสดงเป็นตัวเล็ก)
+function reportStatusCell(text){
+  const t = String(text ?? '');
+  const base = t.split(' (')[0];
+  const extra = t.slice(base.length).trim();
+  const extraMap = { 'ปกติ':'bg-emerald-100 text-emerald-600', 'ใกล้หมด':'bg-amber-100 text-amber-600', 'หมด':'bg-rose-100 text-rose-600' };
+  const badge = extraMap[base] ? `<span class="badge ${extraMap[base]}">${escapeHtml(base)}</span>` : statusBadge(base);
+  return badge + (extra ? ` <span class="text-[11px] text-slate-400">${escapeHtml(extra)}</span>` : '');
+}
+
 function reportTableHtml(cfg){
   const alignCls = a => a==='right' ? 'text-right' : a==='center' ? 'text-center' : '';
-  const body = cfg.rows.map(r=>`<tr class="border-b border-slate-50 hover:bg-slate-50/60">${r.map((c,i)=>`<td class="py-2 pr-3 ${alignCls(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
-  const foot = `<tr class="bg-slate-50/70 font-medium text-slate-600">${cfg.footer.map((c,i)=>`<td class="py-2 pr-3 ${alignCls(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`;
-  return `<div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
-    ${cfg.headers.map(h=>`<th class="py-2 pr-3 ${alignCls(h.align)}">${h.label}</th>`).join('')}
-  </tr></thead><tbody>${body || `<tr><td colspan="${cfg.headers.length}" class="py-8 text-center text-slate-300">ไม่พบข้อมูลในช่วงที่เลือก</td></tr>`}${cfg.rows.length ? foot : ''}</tbody></table></div>`;
+  const cell = (c, i) => {
+    const h = cfg.headers[i];
+    if(h.label === 'สถานะ' && c !== '' && c !== '-') return reportStatusCell(c);
+    return escapeHtml(c);
+  };
+  const body = cfg.rows.map(r=>`<tr class="border-b border-slate-100 hover:bg-sky-50/40 transition-colors">${r.map((c,i)=>`<td class="py-2.5 px-4 tabular-nums ${i===0?'text-slate-400':'text-slate-600'} ${alignCls(cfg.headers[i].align)}">${cell(c,i)}</td>`).join('')}</tr>`).join('');
+  const foot = `<tr class="bg-slate-50 font-semibold text-slate-700">${cfg.footer.map((c,i)=>`<td class="py-3 px-4 tabular-nums ${alignCls(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`;
+  return `<div class="card !p-0 overflow-hidden"><div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="bg-slate-50 text-slate-500 text-xs font-semibold text-left">
+    ${cfg.headers.map(h=>`<th class="py-3 px-4 whitespace-nowrap ${alignCls(h.align)}">${h.label}</th>`).join('')}
+  </tr></thead><tbody>${body || `<tr><td colspan="${cfg.headers.length}" class="py-12 text-center text-slate-300">ไม่พบข้อมูลในช่วงที่เลือก</td></tr>`}${cfg.rows.length ? foot : ''}</tbody></table></div></div>`;
 }
 
 function reportSheetHtml(cfg){
   const al = a => a==='right' ? 'text-align:right' : a==='center' ? 'text-align:center' : '';
-  const th = cfg.headers.map(h=>`<th style="${h.w?`width:${h.w};`:''}">${h.label}</th>`).join('');
+  const th = cfg.headers.map(h=>`<th style="${h.w?`width:${h.w};`:''}background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact">${h.label}</th>`).join('');
   const rows = cfg.rows.map(r=>`<tr>${r.map((c,i)=>`<td style="${al(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
   const foot = cfg.rows.length ? `<tr>${cfg.footer.map((c,i)=>`<td style="${al(cfg.headers[i].align)};font-weight:600">${escapeHtml(c)}</td>`).join('')}</tr>` : '';
   return `<div class="a4-sheet">
@@ -3110,18 +3125,18 @@ function renderReport(kind){
   const st = reportState[kind];
   const filters = reportFilterDefs(kind).map(d=>`
     <div><label class="text-xs text-slate-400 block mb-1">${d.label}</label>
-      <select class="input-field !py-2 !w-auto" onchange="setReportFilter('${kind}','${d.key}',this.value)">
+      <select class="input-field !py-2 !w-auto min-w-[9rem]" onchange="setReportFilter('${kind}','${d.key}',this.value)">
         ${d.options.map(([v,l])=>`<option value="${escapeHtml(v)}" ${v===(st[d.key]||'')?'selected':''}>${escapeHtml(l)}</option>`).join('')}
       </select></div>`).join('');
   $('#mainContent').innerHTML = `
-    <div class="flex flex-wrap items-end gap-3 mb-3">
+    <div class="card !p-4 flex flex-wrap items-end gap-3 mb-4">
       ${filters}
       <div class="ml-auto flex gap-2">
         <button onclick="exportReportCSV('${kind}')" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>CSV</button>
         <button onclick="printReport('${kind}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / PDF</button>
       </div>
     </div>
-    <p id="repSummary" class="text-xs text-slate-400 mb-3"></p>
+    <div id="repSummary" class="flex flex-wrap gap-2 mb-4"></div>
     <div id="repBody"></div>
   `;
   lucide.createIcons();
@@ -3135,7 +3150,7 @@ function setReportFilter(kind, key, val){
 
 function updateReportView(kind){
   const cfg = buildReportCfg(kind);
-  $('#repSummary').textContent = cfg.summary;
+  $('#repSummary').innerHTML = String(cfg.summary||'').split(' · ').filter(Boolean).map(t=>`<span class="inline-flex items-center rounded-full bg-white px-3.5 py-1.5 text-xs text-slate-500 shadow-[0_6px_16px_-10px_rgba(100,116,139,.35)]">${escapeHtml(t)}</span>`).join('');
   $('#repBody').innerHTML = reportTableHtml(cfg);
 }
 
