@@ -1608,6 +1608,13 @@ function renderAssetReceive(){
       <div class="card lg:col-span-1 h-fit">
         <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="package-plus" class="w-5 h-5 text-emerald-400"></i>เพิ่มครุภัณฑ์ที่รับ</h3>
         <form id="arItemForm" class="space-y-3">
+          <div>
+            <label class="text-sm text-slate-500">รูปภาพ</label>
+            <div class="flex items-center gap-3 mt-1">
+              <div id="arImgPreview" class="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0"><i data-lucide="image" class="w-6 h-6 text-slate-300"></i></div>
+              <input type="file" id="ar_image" accept="image/*" class="text-xs min-w-0" onchange="previewFile(this,'arImgPreview')">
+            </div>
+          </div>
           <div><label class="text-sm text-slate-500">รหัสครุภัณฑ์ * <span class="text-xs text-slate-300">(กำหนดเอง ห้ามซ้ำ)</span></label><input id="ar_code" required class="input-field" placeholder="เช่น 6730-007-0001-1-3/55"></div>
           <div><label class="text-sm text-slate-500">ชื่อครุภัณฑ์ *</label><input id="ar_name" required class="input-field"></div>
           <div><label class="text-sm text-slate-500">ประเภทครุภัณฑ์ *</label><select id="ar_category" required class="input-field"><option value="">- เลือกประเภท -</option>${ASSET_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select></div>
@@ -1668,8 +1675,11 @@ function addToAssetReceiveCart(e){
     location: $('#ar_location').value.trim() || null,
     description: $('#ar_desc').value.trim() || null,
     life: $('#ar_life').value ? Number($('#ar_life').value) : null,
+    file: $('#ar_image').files[0] || null,
   });
   $('#arItemForm').reset();
+  $('#arImgPreview').innerHTML = '<i data-lucide="image" class="w-6 h-6 text-slate-300"></i>';
+  lucide.createIcons();
   renderAssetReceiveCart();
   showToast('เพิ่มลงตะกร้าแล้ว','info');
 }
@@ -1679,7 +1689,11 @@ function assetCodeTaken(code, exceptId){
   return !!c && state.assets.some(a=>a.id!==exceptId && (a.asset_code||'').trim().toLowerCase()===c);
 }
 
+function cartImgUrl(c){ if(!c.previewUrl) c.previewUrl = URL.createObjectURL(c.file); return c.previewUrl; }
+
 function removeFromAssetReceiveCart(tempId){
+  const gone = assetReceiveCart.find(c=>c.tempId === tempId);
+  if(gone?.previewUrl) URL.revokeObjectURL(gone.previewUrl);
   assetReceiveCart = assetReceiveCart.filter(c=>c.tempId !== tempId);
   renderAssetReceiveCart();
 }
@@ -1688,7 +1702,8 @@ function renderAssetReceiveCart(){
   $('#arCount').textContent = assetReceiveCart.length;
   $('#arCartBody').innerHTML = assetReceiveCart.map(c=>`
     <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
-      <div class="min-w-0">
+      <div class="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${c.file ? `<img src="${cartImgUrl(c)}" class="w-full h-full object-cover">` : `<i data-lucide="image" class="w-4 h-4 text-slate-300"></i>`}</div>
+      <div class="min-w-0 flex-1">
         <p class="text-sm font-medium text-slate-700 truncate"><span class="text-slate-400">${escapeHtml(c.code)}</span> ${escapeHtml(c.name)}</p>
         <p class="text-xs text-slate-400 truncate">${[c.category, c.brand_model, c.serial_number?'S/N '+c.serial_number:'', c.location, c.life?'อายุใช้งาน '+c.life+' ปี':'', c.price!=null?fmtMoney(c.price)+' บาท':''].filter(Boolean).map(escapeHtml).join(' · ') || '-'}</p>
       </div>
@@ -1727,6 +1742,7 @@ async function submitAssetReceipt(){
   showLoader();
   let receipt = null;
   try{
+    for(const c of items){ if(c.file) c.image_url = await uploadImage(c.file, 'assets'); }
     const receiptCode = nextSeqCodes(fyPrefix('AR'), state.assetReceipts.map(r=>r.receipt_code))[0];
     const { data: rc, error: e1 } = await dbClient.from('asset_receipts').insert({
       receipt_code: receiptCode, receive_date: receiveDate, supplier, doc_ref: docRef, received_by: state.user.id,
@@ -1737,7 +1753,7 @@ async function submitAssetReceipt(){
     const rows = items.map((c,i)=>({
       asset_code: c.code, name: c.name, category: c.category, brand_model: c.brand_model, serial_number: c.serial_number,
       purchase_date: receiveDate, purchase_price: c.price, status:'ใช้งานปกติ', location: c.location,
-      description: c.description, useful_life_years: c.life, fund_type: fundType, acquisition_method: acqMethod,
+      description: c.description, image_url: c.image_url || null, useful_life_years: c.life, fund_type: fundType, acquisition_method: acqMethod,
       supplier_name: supplier, supplier_address: supplierAddr, supplier_phone: supplierPhone, doc_ref: docRef,
       receipt_id: receipt.id, created_by: state.user.id,
     }));
