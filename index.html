@@ -662,7 +662,8 @@ function navigate(view){
 // ---------------------------------------------------------------------------
 // Generic modal / confirm
 // ---------------------------------------------------------------------------
-function openModal(title, bodyHtml, size='max-w-lg'){
+function openModal(title, bodyHtml, size='max-w-lg', dismissible=false){
+  $('#modalOverlay').dataset.dismissible = dismissible ? '1' : '';
   $('#modalBox').className = `bg-white rounded-3xl shadow-soft w-full ${size} max-h-[90vh] overflow-y-auto p-6`;
   $('#modalBox').style.animation = 'popIn .2s ease';
   $('#modalBox').innerHTML = `
@@ -1770,7 +1771,7 @@ function openIssueDetailModal(id){
       </div>
     </div>
     <div class="flex justify-end pt-4"><button onclick="openIssuePrintPreview('${r.id}')" class="btn-secondary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ใบเบิก</button></div>
-  `, 'max-w-lg');
+  `, 'max-w-lg', true);
   lucide.createIcons();
 }
 
@@ -1837,7 +1838,7 @@ function openIssuePrintPreview(id){
       <button onclick="printIssueForm('${r.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF</button>
     </div>
     <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:210mm;margin:0 auto">${issueFormHtml(r)}</div></div>
-  `, 'max-w-4xl');
+  `, 'max-w-4xl', true);
   lucide.createIcons();
 }
 
@@ -2047,7 +2048,7 @@ function openStockCardModal(materialId){
           <td class="py-2">${escapeHtml(getUserName(t.performed_by))}</td>
         </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการเคลื่อนไหว</td></tr>`}
     </tbody></table></div>
-  `, 'max-w-2xl');
+  `, 'max-w-2xl', true);
 }
 
 // ---------------------------------------------------------------------------
@@ -2140,7 +2141,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if(cb) cb();
   });
 
-  $('#modalOverlay').addEventListener('click', e => { if(e.target.id === 'modalOverlay') closeModal(); });
+  $('#modalOverlay').addEventListener('click', e => { if(e.target.id === 'modalOverlay' && e.currentTarget.dataset.dismissible === '1') closeModal(); });
   $('#confirmModal').addEventListener('click', e => { if(e.target.id === 'confirmModal') closeConfirm(); });
   document.addEventListener('click', e => { if(!e.target.closest('#userMenuWrap')) closeUserMenu(); });
 
