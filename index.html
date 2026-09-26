@@ -45,6 +45,8 @@
   .a4-sheet table { width:100%; border-collapse:collapse; }
   .a4-sheet th, .a4-sheet td { border:1px solid #111; padding:3px 6px; font-size:13px; }
   .a4-sheet th { text-align:center; font-weight:600; }
+  .a4-sheet thead { display:table-header-group; }
+  .a4-sheet tr { page-break-inside:avoid; }
   .a4-dots { display:inline-block; border-bottom:1px dotted #111; min-width:50mm; text-align:center; }
   @media print {
     @page { size:A4; margin:0; }
@@ -2025,30 +2027,141 @@ function renderMatCardTable(){
   lucide.createIcons();
 }
 
-function openStockCardModal(materialId){
+// Stock Card: month-aware ledger with true running balances.
+// Opening balance is derived from the actual current quantity, so stock that was
+// entered without a ledger entry (e.g. seed data) is still counted correctly.
+function txMonthKey(t){
+  const d = new Date(t.created_at);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function txNet(t){
+  return t.type === 'เบิกออก' ? -Number(t.quantity) : Number(t.quantity);
+}
+
+function stockCardData(materialId, monthKey){
+  const mat = state.materials.find(m=>m.id===materialId);
+  const txs = state.stockTx.filter(t=>t.material_id===materialId)
+    .slice().sort((a,b)=> new Date(a.created_at)-new Date(b.created_at) || String(a.id).localeCompare(String(b.id)));
+  const initial = Number(mat.quantity) - txs.reduce((s,t)=>s+txNet(t),0);
+  let bal = initial;
+  const all = txs.map(t=>{ const before = bal; bal += txNet(t); return { tx:t, before, balance:bal, key:txMonthKey(t) }; });
+  const inPeriod = monthKey ? all.filter(r=>r.key===monthKey) : all;
+  let opening = initial;
+  if(monthKey){
+    const firstIdx = all.findIndex(r=>r.key===monthKey);
+    if(firstIdx >= 0) opening = all[firstIdx].before;
+    else { const prior = all.filter(r=>r.key < monthKey); opening = prior.length ? prior[prior.length-1].balance : initial; }
+  }
+  const rows = inPeriod.map(r=>({ tx:r.tx, in: r.tx.type==='เบิกออก' ? 0 : Number(r.tx.quantity), out: r.tx.type==='เบิกออก' ? Number(r.tx.quantity) : 0, balance:r.balance }));
+  const totalIn = rows.reduce((s,r)=>s+r.in,0);
+  const totalOut = rows.reduce((s,r)=>s+r.out,0);
+  const closing = rows.length ? rows[rows.length-1].balance : opening;
+  return { mat, opening, rows, totalIn, totalOut, closing, monthKey };
+}
+
+function stockCardMonthOptions(materialId){
+  const keys = [...new Set(state.stockTx.filter(t=>t.material_id===materialId).map(txMonthKey))].sort().reverse();
+  return keys;
+}
+
+function monthKeyLabel(key){
+  if(!key) return 'ทั้งหมด';
+  const [y,m] = key.split('-').map(Number);
+  return `${TH_MONTHS[m-1]} ${y+543}`;
+}
+
+function stockCardRowsHtml(d){
+  const unit = escapeHtml(d.mat.unit||'');
+  const body = d.rows.map(r=>`
+    <tr class="border-b border-slate-50">
+      <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${formatDate(r.tx.created_at)}</td>
+      <td class="py-2 pr-3">${r.tx.type==='เบิกออก'?'<span class="text-rose-500">จ่ายออก</span>':'<span class="text-emerald-600">รับเข้า</span>'}${r.tx.note?`<div class="text-xs text-slate-400">${escapeHtml(r.tx.note)}</div>`:''}</td>
+      <td class="py-2 pr-3 text-right text-emerald-600 font-medium">${r.in||''}</td>
+      <td class="py-2 pr-3 text-right text-rose-500 font-medium">${r.out||''}</td>
+      <td class="py-2 pr-3 text-right">${r.balance}</td>
+      <td class="py-2">${escapeHtml(getUserName(r.tx.performed_by))}</td>
+    </tr>`).join('');
+  return `
+    <tr class="border-b border-slate-100 bg-slate-50/70"><td class="py-2 pr-3"></td><td class="py-2 pr-3 font-medium text-slate-600">ยอดยกมา</td><td></td><td></td><td class="py-2 pr-3 text-right font-medium">${d.opening}</td><td></td></tr>
+    ${body || `<tr><td colspan="6" class="py-6 text-center text-slate-300">ไม่มีการเคลื่อนไหวในช่วงนี้</td></tr>`}
+    <tr class="bg-slate-50/70"><td></td><td class="py-2 pr-3 font-medium text-slate-600">รวม / คงเหลือปลายงวด (${unit})</td><td class="py-2 pr-3 text-right font-medium text-emerald-600">${d.totalIn}</td><td class="py-2 pr-3 text-right font-medium text-rose-500">${d.totalOut}</td><td class="py-2 pr-3 text-right font-semibold">${d.closing}</td><td></td></tr>`;
+}
+
+function openStockCardModal(materialId, monthKey=''){
   const mat = state.materials.find(m=>m.id===materialId);
   if(!mat) return;
-  const txs = state.stockTx.filter(t=>t.material_id===materialId).slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
-  let balance = 0;
-  const rows = txs.map(t=>{
-    balance += (t.type==='รับเข้า' ? Number(t.quantity) : -Number(t.quantity));
-    return {...t, balance};
-  }).reverse();
+  const months = stockCardMonthOptions(materialId);
   openModal(`Stock Card: ${mat.name}`, `
-    <div class="mb-3 text-sm text-slate-500">คงเหลือปัจจุบัน: <span class="font-semibold text-slate-700">${mat.quantity} ${escapeHtml(mat.unit)}</span></div>
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-3">
+      <div class="text-sm text-slate-500">${escapeHtml(mat.item_code||'-')} · คงเหลือปัจจุบัน <span class="font-semibold text-slate-700">${mat.quantity} ${escapeHtml(mat.unit)}</span></div>
+      <div class="flex gap-2 items-center">
+        <select id="sc_month" class="input-field !py-1.5 !w-auto" onchange="updateStockCardView('${mat.id}')">
+          <option value="">ทุกเดือน</option>
+          ${months.map(k=>`<option value="${k}" ${k===monthKey?'selected':''}>${monthKeyLabel(k)}</option>`).join('')}
+        </select>
+        <button onclick="printStockCard('${mat.id}')" class="btn-primary !py-1.5 gap-2 text-sm"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / PDF</button>
+      </div>
+    </div>
     <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100 sticky top-0 bg-white">
-      <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">คงเหลือ</th><th class="py-2">ผู้ทำรายการ</th>
-    </tr></thead><tbody>
-      ${rows.map(t=>`
-        <tr class="border-b border-slate-50">
-          <td class="py-2 pr-3 text-slate-400">${formatDate(t.created_at)}</td>
-          <td class="py-2 pr-3">${t.type==='รับเข้า'?'<span class="text-emerald-600">รับเข้า</span>':'<span class="text-rose-500">เบิกออก</span>'}${t.note?`<div class="text-xs text-slate-400">${escapeHtml(t.note)}</div>`:''}</td>
-          <td class="py-2 pr-3 font-medium ${t.type==='รับเข้า'?'text-emerald-600':'text-rose-500'}">${t.type==='รับเข้า'?'+':'-'}${t.quantity}</td>
-          <td class="py-2 pr-3">${t.balance}</td>
-          <td class="py-2">${escapeHtml(getUserName(t.performed_by))}</td>
-        </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการเคลื่อนไหว</td></tr>`}
-    </tbody></table></div>
-  `, 'max-w-2xl', true);
+      <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3 text-right">รับเข้า</th><th class="py-2 pr-3 text-right">จ่ายออก</th><th class="py-2 pr-3 text-right">คงเหลือ</th><th class="py-2">ผู้ทำรายการ</th>
+    </tr></thead><tbody id="scBody"></tbody></table></div>
+  `, 'max-w-3xl', true);
+  lucide.createIcons();
+  updateStockCardView(materialId);
+}
+
+function updateStockCardView(materialId){
+  const d = stockCardData(materialId, $('#sc_month').value);
+  $('#scBody').innerHTML = stockCardRowsHtml(d);
+}
+
+function stockCardFormHtml(d){
+  const orgName = (typeof ORG_NAME !== 'undefined' && ORG_NAME) ? ORG_NAME : 'ชื่อหน่วยงาน';
+  const m = d.mat;
+  const rows = d.rows.map(r=>`<tr>
+    <td style="white-space:nowrap">${formatThaiLongDate(r.tx.created_at)}</td>
+    <td>${r.tx.type==='เบิกออก'?'จ่ายออก':'รับเข้า'}${r.tx.note?` - ${escapeHtml(r.tx.note)}`:''}</td>
+    <td style="text-align:right">${r.in||''}</td>
+    <td style="text-align:right">${r.out||''}</td>
+    <td style="text-align:right">${r.balance}</td>
+    <td>${escapeHtml(getUserName(r.tx.performed_by))}</td>
+  </tr>`).join('');
+  return `<div class="a4-sheet">
+    <div style="text-align:center">
+      <div style="font-size:16px;font-weight:600">${escapeHtml(orgName)}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2mm">บัตรควบคุมวัสดุ (Stock Card)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1mm 8mm;margin-top:6mm">
+      <div>ชื่อวัสดุ <b>${escapeHtml(m.name)}</b></div>
+      <div>รหัสวัสดุ <b>${escapeHtml(m.item_code||'-')}</b></div>
+      <div>หมวดหมู่ <b>${escapeHtml(m.category||'-')}</b></div>
+      <div>หน่วยนับ <b>${escapeHtml(m.unit||'-')}</b></div>
+      <div>จุดสั่งซื้อขั้นต่ำ <b>${m.min_quantity} ${escapeHtml(m.unit||'')}</b></div>
+      <div>ช่วงเวลา <b>${d.monthKey ? 'เดือน ' + monthKeyLabel(d.monthKey) : 'ทุกเดือน'}</b></div>
+    </div>
+    <table style="margin-top:5mm">
+      <thead><tr><th>วันที่</th><th>รายการ / เอกสารอ้างอิง</th><th style="width:20mm">รับเข้า</th><th style="width:20mm">จ่ายออก</th><th style="width:22mm">คงเหลือ</th><th style="width:34mm">ผู้ทำรายการ</th></tr></thead>
+      <tbody>
+        <tr><td></td><td><b>ยอดยกมา</b></td><td></td><td></td><td style="text-align:right"><b>${d.opening}</b></td><td></td></tr>
+        ${rows || '<tr><td colspan="6" style="text-align:center">ไม่มีการเคลื่อนไหวในช่วงนี้</td></tr>'}
+        <tr><td></td><td><b>รวม / คงเหลือปลายงวด</b></td><td style="text-align:right"><b>${d.totalIn}</b></td><td style="text-align:right"><b>${d.totalOut}</b></td><td style="text-align:right"><b>${d.closing}</b></td><td></td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:8mm;font-size:12px;color:#444">พิมพ์เมื่อ ${formatThaiLongDate(new Date())} โดย ${escapeHtml(state.user.full_name)}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12mm">
+      <div style="text-align:center">
+        <div>(ลงชื่อ)<span class="a4-dots" style="min-width:55mm"></span>ผู้ควบคุม</div>
+        <div>(<span style="display:inline-block;min-width:55mm">&nbsp;</span>)</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function printStockCard(materialId){
+  const d = stockCardData(materialId, $('#sc_month')?.value || '');
+  $('#printArea').innerHTML = stockCardFormHtml(d);
+  window.print();
 }
 
 // ---------------------------------------------------------------------------
