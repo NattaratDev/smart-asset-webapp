@@ -227,7 +227,10 @@ const MENU_ITEMS = {
   matReceive:  { label: 'รับเข้าวัสดุ', icon: 'package-plus' },
   matIssue:    { label: 'เบิกวัสดุ', icon: 'package-minus' },
   matTrack:    { label: 'ติดตามสถานะการเบิก', icon: 'list-checks' },
-  matCard:     { label: 'คงเหลือ/Stock Card', icon: 'scroll-text' },
+  matCard:     { label: 'Stock Card', icon: 'scroll-text' },
+  repReceive:  { label: 'รายงานการรับเข้าวัสดุ', icon: 'file-input' },
+  repIssue:    { label: 'รายงานการเบิกวัสดุ', icon: 'file-output' },
+  repBalance:  { label: 'รายงานคงเหลือ', icon: 'bar-chart-3' },
   assets:      { label: 'ครุภัณฑ์', icon: 'monitor' },
   requests:    { label: 'คำร้อง', icon: 'clipboard-list' },
   employees:   { label: 'พนักงาน', icon: 'users' },
@@ -241,7 +244,7 @@ const MENU_ITEMS = {
 const ROLE_MENU = {
   admin: [
     { key:'dashboard' },
-    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{key:'matCard'}] },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { key:'assets', children:[{key:'requests'}] },
     { key:'employees' },
     { key:'profile' },
@@ -249,13 +252,13 @@ const ROLE_MENU = {
   ],
   staff: [
     { key:'dashboard' },
-    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{key:'matCard'}] },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { key:'assets', children:[{key:'requests'}] },
     { key:'profile' },
   ],
   employee: [
     { key:'dashboard' },
-    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matIssue'},{key:'matTrack'},{key:'matCard'}] },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { key:'assets', children:[{key:'requests'}] },
     { key:'profile' },
   ],
@@ -267,10 +270,14 @@ const ROLE_BOTTOM_NAV_KEYS = {
   employee: ['dashboard','matStock','assets','matIssue'],
 };
 
-function flatMenuKeys(role){
+function menuLeaves(nodes){
   const out = [];
-  (ROLE_MENU[role]||[]).forEach(node=>{ if(node.key) out.push(node.key); (node.children||[]).forEach(c=>out.push(c.key)); });
+  (nodes||[]).forEach(n=>{ if(n.key) out.push(n.key); if(n.children) out.push(...menuLeaves(n.children)); });
   return out;
+}
+
+function flatMenuKeys(role){
+  return menuLeaves(ROLE_MENU[role]);
 }
 
 const MATERIAL_CATEGORIES = [
@@ -580,12 +587,16 @@ function buildSidebar(){
         <i data-lucide="${node.icon}" class="w-4 h-4"></i> ${node.group}
       </div>`;
     }
-    const childrenBtns = (node.children||[]).map(c=>{
+    const renderChildren = (list, depth) => list.map(c=>{
+      if(c.group){
+        return `<div class="flex items-center gap-2 w-full ${depth?'pl-14':'pl-11'} pr-4 pt-2 pb-0.5 text-[12px] font-semibold text-slate-400"><i data-lucide="${c.icon}" class="w-3.5 h-3.5"></i>${c.group}</div>` + renderChildren(c.children||[], depth+1);
+      }
       const citem = MENU_ITEMS[c.key];
-      return `<button data-view="${c.key}" onclick="navigate('${c.key}')" class="nav-btn flex items-center gap-3 w-full pl-11 pr-4 py-2 rounded-2xl text-[13px] font-medium text-slate-400 hover:bg-sky-50 hover:text-sky-500 transition">
+      return `<button data-view="${c.key}" onclick="navigate('${c.key}')" class="nav-btn flex items-center gap-3 w-full ${depth?'pl-16':'pl-11'} pr-4 py-2 rounded-2xl text-[13px] font-medium text-slate-400 hover:bg-sky-50 hover:text-sky-500 transition">
         <i data-lucide="${citem.icon}" class="w-4 h-4"></i> ${citem.label}
       </button>`;
     }).join('');
+    const childrenBtns = renderChildren(node.children||[], 0);
     return headHtml + childrenBtns;
   }).join('');
   $('#sidebarUserName').textContent = state.user.full_name;
@@ -615,9 +626,9 @@ function buildBottomNav(){
   if(isAdmin){
     let grid = '';
     (ROLE_MENU.admin||[]).forEach(node=>{
-      const leaves = [...(node.key?[node]:[]), ...(node.children||[])];
-      leaves.forEach(n=>{
-        const item = MENU_ITEMS[n.key];
+      menuLeaves([node]).forEach(k=>{
+        const n = {key:k};
+        const item = MENU_ITEMS[k];
         grid += `<button onclick="navigate('${n.key}'); closeAdminPanel();" class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-50 hover:bg-sky-50">
           <i data-lucide="${item.icon}" class="w-6 h-6 text-sky-400"></i>
           <span class="text-xs text-slate-500">${item.label}</span>
@@ -655,7 +666,7 @@ function navigate(view){
   closeAdminPanel();
   closeUserMenu();
   $('#pageTitle').textContent = item ? item.label : '';
-  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -2162,6 +2173,177 @@ function printStockCard(materialId){
   const d = stockCardData(materialId, $('#sc_month')?.value || '');
   $('#printArea').innerHTML = stockCardFormHtml(d);
   window.print();
+}
+
+// ---------------------------------------------------------------------------
+// รายงานวัสดุ: รับเข้า / เบิก / คงเหลือ (พิมพ์ A4 - PDF และส่งออก CSV)
+// ---------------------------------------------------------------------------
+const reportState = { receive:{month:''}, issue:{month:'',status:''}, balance:{month:'',category:''} };
+const REPORT_TITLES = { receive:'รายงานการรับเข้าวัสดุ', issue:'รายงานการเบิกวัสดุ', balance:'รายงานวัสดุคงเหลือ' };
+
+function dateMonthKey(v){
+  const d = new Date(v);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+
+function scopedIssueRequests(){
+  return state.user.role === 'employee' ? state.issueRequests.filter(r=>r.requester_id===state.user.id) : state.issueRequests;
+}
+
+function reportMonthKeys(kind){
+  let dates;
+  if(kind === 'receive') dates = state.stockTx.filter(t=>t.type==='รับเข้า').map(t=>t.created_at);
+  else if(kind === 'issue') dates = scopedIssueRequests().map(r=>r.created_at);
+  else dates = state.stockTx.map(t=>t.created_at);
+  return [...new Set(dates.map(dateMonthKey))].sort().reverse();
+}
+
+function buildReportCfg(kind){
+  const st = reportState[kind];
+  const monthText = st.month ? monthKeyLabel(st.month) : null;
+  if(kind === 'receive'){
+    const txs = state.stockTx.filter(t=>t.type==='รับเข้า' && (!st.month || dateMonthKey(t.created_at)===st.month))
+      .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const rows = txs.map((t,i)=>{
+      const m = state.materials.find(x=>x.id===t.material_id);
+      return [i+1, formatDate(t.created_at), m?.item_code||'-', m?.name||'-', Number(t.quantity), m?.unit||'', getUserName(t.performed_by), t.note||''];
+    });
+    return {
+      title: REPORT_TITLES.receive,
+      meta: [['ช่วงเวลา', monthText ? 'เดือน '+monthText : 'ทุกเดือน']],
+      headers: [{label:'ลำดับ',align:'center',w:'12mm'},{label:'วันที่',w:'22mm'},{label:'รหัสวัสดุ',w:'24mm'},{label:'รายการ'},{label:'จำนวน',align:'right',w:'16mm'},{label:'หน่วย',w:'14mm'},{label:'ผู้บันทึก',w:'26mm'},{label:'หมายเหตุ'}],
+      rows,
+      footer: ['','','','รวมทั้งสิ้น '+rows.length+' รายการ','','','',''],
+      summary: `พบ ${rows.length} รายการรับเข้า`,
+    };
+  }
+  if(kind === 'issue'){
+    const docs = scopedIssueRequests().filter(r=>(!st.month||dateMonthKey(r.created_at)===st.month) && (!st.status||r.status===st.status))
+      .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const rows = [];
+    docs.forEach(r=>{
+      (r.items||[]).forEach(it=>{
+        rows.push([rows.length+1, r.issue_code, formatDate(r.created_at), getUserName(r.requester_id), it.material?.name||'-', Number(it.quantity), r.status==='อนุมัติ' ? Number(issuedQty(it)) : '-', it.material?.unit||'', r.status]);
+      });
+    });
+    return {
+      title: REPORT_TITLES.issue,
+      meta: [['ช่วงเวลา', monthText ? 'เดือน '+monthText : 'ทุกเดือน'], ['สถานะ', st.status || 'ทั้งหมด']],
+      headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'เลขที่ใบเบิก',w:'27mm'},{label:'วันที่',w:'22mm'},{label:'ผู้เบิก',w:'26mm'},{label:'รายการ'},{label:'ขอเบิก',align:'right',w:'14mm'},{label:'จ่ายจริง',align:'right',w:'14mm'},{label:'หน่วย',w:'12mm'},{label:'สถานะ',w:'18mm'}],
+      rows,
+      footer: ['','','','','รวม '+docs.length+' ใบเบิก / '+rows.length+' รายการ','','','',''],
+      summary: `พบ ${docs.length} ใบเบิก (${rows.length} รายการวัสดุ)`,
+    };
+  }
+  const list = state.materials.filter(m=>!st.category || m.category===st.category)
+    .slice().sort((a,b)=>String(a.item_code||'').localeCompare(String(b.item_code||'')));
+  let low = 0, out = 0;
+  const rows = list.map((m,i)=>{
+    const later = st.month ? state.stockTx.filter(t=>t.material_id===m.id && dateMonthKey(t.created_at)>st.month).reduce((s,t)=>s+txNet(t),0) : 0;
+    const bal = Number(m.quantity) - later;
+    let status = 'ปกติ';
+    if(bal <= 0){ status = 'หมด'; out++; }
+    else if(bal <= Number(m.min_quantity)){ status = 'ใกล้หมด'; low++; }
+    if(m.is_active === false) status += ' (ปิดใช้งาน)';
+    return [i+1, m.item_code||'-', m.name, m.category||'-', m.unit||'', bal, Number(m.min_quantity), status];
+  });
+  return {
+    title: REPORT_TITLES.balance,
+    meta: [['ข้อมูล ณ', monthText ? 'สิ้นเดือน '+monthText : 'ปัจจุบัน'], ['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
+    headers: [{label:'ลำดับ',align:'center',w:'12mm'},{label:'รหัสวัสดุ',w:'26mm'},{label:'รายการ'},{label:'หมวดหมู่',w:'34mm'},{label:'หน่วย',w:'14mm'},{label:'คงเหลือ',align:'right',w:'18mm'},{label:'จุดสั่งซื้อ',align:'right',w:'18mm'},{label:'สถานะ',w:'24mm'}],
+    rows,
+    footer: ['','','รวม '+rows.length+' รายการ','','','','','ใกล้หมด '+low+' / หมด '+out],
+    summary: `ทั้งหมด ${rows.length} รายการ · ใกล้หมด ${low} · หมด ${out}`,
+  };
+}
+
+function reportTableHtml(cfg){
+  const alignCls = a => a==='right' ? 'text-right' : a==='center' ? 'text-center' : '';
+  const body = cfg.rows.map(r=>`<tr class="border-b border-slate-50 hover:bg-slate-50/60">${r.map((c,i)=>`<td class="py-2 pr-3 ${alignCls(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
+  const foot = `<tr class="bg-slate-50/70 font-medium text-slate-600">${cfg.footer.map((c,i)=>`<td class="py-2 pr-3 ${alignCls(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`;
+  return `<div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+    ${cfg.headers.map(h=>`<th class="py-2 pr-3 ${alignCls(h.align)}">${h.label}</th>`).join('')}
+  </tr></thead><tbody>${body || `<tr><td colspan="${cfg.headers.length}" class="py-8 text-center text-slate-300">ไม่พบข้อมูลในช่วงที่เลือก</td></tr>`}${cfg.rows.length ? foot : ''}</tbody></table></div>`;
+}
+
+function reportSheetHtml(cfg){
+  const orgName = (typeof ORG_NAME !== 'undefined' && ORG_NAME) ? ORG_NAME : 'ชื่อหน่วยงาน';
+  const al = a => a==='right' ? 'text-align:right' : a==='center' ? 'text-align:center' : '';
+  const th = cfg.headers.map(h=>`<th style="${h.w?`width:${h.w};`:''}">${h.label}</th>`).join('');
+  const rows = cfg.rows.map(r=>`<tr>${r.map((c,i)=>`<td style="${al(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
+  const foot = cfg.rows.length ? `<tr>${cfg.footer.map((c,i)=>`<td style="${al(cfg.headers[i].align)};font-weight:600">${escapeHtml(c)}</td>`).join('')}</tr>` : '';
+  return `<div class="a4-sheet">
+    <div style="text-align:center">
+      <div style="font-size:16px;font-weight:600">${escapeHtml(orgName)}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2mm">${escapeHtml(cfg.title)}</div>
+    </div>
+    <div style="margin-top:5mm">${cfg.meta.map(([k,v])=>`${k} <b>${escapeHtml(v)}</b>`).join('&emsp;&emsp;')}</div>
+    <table style="margin-top:4mm;font-size:12px">
+      <thead><tr>${th}</tr></thead>
+      <tbody>${rows || `<tr><td colspan="${cfg.headers.length}" style="text-align:center">ไม่พบข้อมูลในช่วงที่เลือก</td></tr>`}${foot}</tbody>
+    </table>
+    <div style="margin-top:8mm;font-size:12px;color:#444">พิมพ์เมื่อ ${formatThaiLongDate(new Date())} โดย ${escapeHtml(state.user.full_name)}</div>
+  </div>`;
+}
+
+function renderReport(kind){
+  const st = reportState[kind];
+  const months = reportMonthKeys(kind);
+  if(st.month && !months.includes(st.month)) st.month = '';
+  const isBalance = kind === 'balance';
+  const monthFilter = `
+    <div><label class="text-xs text-slate-400 block mb-1">${isBalance?'ข้อมูล ณ สิ้นเดือน':'เดือน'}</label>
+      <select class="input-field !py-2 !w-auto" onchange="setReportFilter('${kind}','month',this.value)">
+        <option value="">${isBalance?'ปัจจุบัน':'ทุกเดือน'}</option>
+        ${months.map(k=>`<option value="${k}" ${k===st.month?'selected':''}>${monthKeyLabel(k)}</option>`).join('')}
+      </select></div>`;
+  const extra = kind === 'issue' ? `
+    <div><label class="text-xs text-slate-400 block mb-1">สถานะ</label>
+      <select class="input-field !py-2 !w-auto" onchange="setReportFilter('issue','status',this.value)">
+        ${[['','ทั้งหมด'],['รออนุมัติ','รออนุมัติ'],['อนุมัติ','อนุมัติ'],['ไม่อนุมัติ','ไม่อนุมัติ']].map(([v,l])=>`<option value="${v}" ${v===st.status?'selected':''}>${l}</option>`).join('')}
+      </select></div>`
+    : isBalance ? `
+    <div><label class="text-xs text-slate-400 block mb-1">หมวดหมู่</label>
+      <select class="input-field !py-2 !w-auto" onchange="setReportFilter('balance','category',this.value)">
+        <option value="">ทุกหมวดหมู่</option>
+        ${MATERIAL_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}" ${c===st.category?'selected':''}>${escapeHtml(c)}</option>`).join('')}
+      </select></div>` : '';
+  $('#mainContent').innerHTML = `
+    <div class="flex flex-wrap items-end gap-3 mb-3">
+      ${monthFilter}${extra}
+      <div class="ml-auto flex gap-2">
+        <button onclick="exportReportCSV('${kind}')" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>CSV</button>
+        <button onclick="printReport('${kind}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / PDF</button>
+      </div>
+    </div>
+    <p id="repSummary" class="text-xs text-slate-400 mb-3"></p>
+    <div id="repBody"></div>
+  `;
+  lucide.createIcons();
+  updateReportView(kind);
+}
+
+function setReportFilter(kind, key, val){
+  reportState[kind][key] = val;
+  updateReportView(kind);
+}
+
+function updateReportView(kind){
+  const cfg = buildReportCfg(kind);
+  $('#repSummary').textContent = cfg.summary;
+  $('#repBody').innerHTML = reportTableHtml(cfg);
+}
+
+function printReport(kind){
+  $('#printArea').innerHTML = reportSheetHtml(buildReportCfg(kind));
+  window.print();
+}
+
+function exportReportCSV(kind){
+  const cfg = buildReportCfg(kind);
+  const labels = cfg.headers.map(h=>h.label);
+  const rows = cfg.rows.map(r=>Object.fromEntries(labels.map((l,i)=>[l, r[i]])));
+  exportCSV(rows, `${kind}_report.csv`, labels);
 }
 
 // ---------------------------------------------------------------------------
