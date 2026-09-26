@@ -1336,39 +1336,141 @@ function deleteRequest(id){
 }
 
 // ---------------------------------------------------------------------------
-// รับเข้าวัสดุ (Stock In) - staff/admin เท่านั้น
+// รับเข้าวัสดุ (Stock In) - staff/admin เท่านั้น - รับเข้าแบบตะกร้าหลายรายการ
 // ---------------------------------------------------------------------------
+let receiveCart = [];
+
 function renderMatReceive(){
   if(state.user.role === 'employee'){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); navigate('matStock'); return; }
+  receiveCart = [];
   $('#mainContent').innerHTML = `
-    <div class="grid lg:grid-cols-3 gap-5">
+    <div class="grid lg:grid-cols-3 gap-5 mb-5">
       <div class="card lg:col-span-1 h-fit">
-        <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="package-plus" class="w-5 h-5 text-emerald-400"></i>บันทึกรับเข้าวัสดุ</h3>
-        <form id="receiveForm" class="space-y-3">
+        <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="package-plus" class="w-5 h-5 text-emerald-400"></i>เพิ่มรายการรับเข้า</h3>
+        <form id="receiveItemForm" class="space-y-3">
           <div><label class="text-sm text-slate-500">รายการวัสดุ</label>
             <select id="rc_material_id" class="input-field" required>
               ${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}">${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}
             </select>
           </div>
           <div><label class="text-sm text-slate-500">จำนวนที่รับเข้า</label><input id="rc_quantity" type="number" min="0.01" step="0.01" required class="input-field"></div>
-          <div><label class="text-sm text-slate-500">หมายเหตุ (เลขที่ใบสั่งซื้อ/ผู้จำหน่าย)</label><textarea id="rc_note" rows="2" class="input-field"></textarea></div>
-          <button type="submit" class="btn-primary w-full justify-center gap-2"><i data-lucide="package-plus" class="w-4 h-4"></i>บันทึกรับเข้า</button>
+          <div><label class="text-sm text-slate-500">หมายเหตุเฉพาะรายการ (ถ้ามี)</label><input id="rc_item_note" class="input-field"></div>
+          <button type="submit" class="btn-secondary w-full justify-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มลงตะกร้า</button>
         </form>
       </div>
       <div class="card lg:col-span-2">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="font-semibold text-slate-600">ประวัติการรับเข้าล่าสุด</h3>
-          ${state.user.role==='admin'?`<button onclick="exportCSV(state.stockTx.filter(t=>t.type==='รับเข้า').map(t=>({...t, material_name:getMaterialNameOnly(t.material_id)})),'stock_in.csv',['material_name','quantity','note','created_at'])" class="btn-secondary gap-2 !py-1.5 !px-3 text-xs"><i data-lucide="download" class="w-3.5 h-3.5"></i>รายงาน</button>`:''}
-        </div>
-        <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
-          <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">วัสดุ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">ผู้บันทึก</th><th class="py-2">หมายเหตุ</th>
-        </tr></thead><tbody id="receiveHistoryBody"></tbody></table></div>
+        <h3 class="font-semibold text-slate-600 mb-3">ตะกร้ารายการรับเข้า (<span id="cartCount">0</span> รายการ)</h3>
+        <div id="receiveCartBody" class="space-y-2 mb-4 max-h-64 overflow-y-auto"></div>
+        <div class="mb-3"><label class="text-sm text-slate-500">หมายเหตุ/เลขที่เอกสารรวม (ใช้กับทุกรายการในตะกร้า)</label><textarea id="rc_batch_note" rows="2" class="input-field" placeholder="เช่น เลขที่ใบส่งของ, ชื่อผู้จำหน่าย"></textarea></div>
+        <button id="confirmBatchBtn" onclick="openReceiveConfirmModal()" disabled class="btn-primary w-full justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="check-circle" class="w-4 h-4"></i>ยืนยันการรับเข้าทั้งหมด</button>
       </div>
+    </div>
+    <div class="card">
+      <div class="flex items-center justify-between mb-3">
+        <h3 class="font-semibold text-slate-600">ประวัติการรับเข้าล่าสุด</h3>
+        ${state.user.role==='admin'?`<button onclick="exportCSV(state.stockTx.filter(t=>t.type==='รับเข้า').map(t=>({...t, material_name:getMaterialNameOnly(t.material_id)})),'stock_in.csv',['material_name','quantity','note','created_at'])" class="btn-secondary gap-2 !py-1.5 !px-3 text-xs"><i data-lucide="download" class="w-3.5 h-3.5"></i>รายงาน</button>`:''}
+      </div>
+      <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+        <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">วัสดุ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">ผู้บันทึก</th><th class="py-2">หมายเหตุ</th>
+      </tr></thead><tbody id="receiveHistoryBody"></tbody></table></div>
     </div>
   `;
   lucide.createIcons();
+  renderReceiveCart();
   renderReceiveHistory();
-  $('#receiveForm').onsubmit = submitReceiveForm;
+  $('#receiveItemForm').onsubmit = addToReceiveCart;
+}
+
+function addToReceiveCart(e){
+  e.preventDefault();
+  const materialId = $('#rc_material_id').value;
+  const qty = Number($('#rc_quantity').value);
+  const note = $('#rc_item_note').value.trim() || null;
+  if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
+  const mat = state.materials.find(m=>m.id===materialId);
+  if(!mat) return;
+  receiveCart.push({ tempId: crypto.randomUUID(), material_id: materialId, material_name: mat.name, unit: mat.unit, quantity: qty, note });
+  $('#receiveItemForm').reset();
+  renderReceiveCart();
+  showToast('เพิ่มลงตะกร้าแล้ว','info');
+}
+
+function removeFromReceiveCart(tempId){
+  receiveCart = receiveCart.filter(c=>c.tempId !== tempId);
+  renderReceiveCart();
+}
+
+function renderReceiveCart(){
+  $('#cartCount').textContent = receiveCart.length;
+  $('#receiveCartBody').innerHTML = receiveCart.map(c=>`
+    <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-slate-700 truncate">${escapeHtml(c.material_name)}</p>
+        <p class="text-xs text-slate-400">${c.note?escapeHtml(c.note)+' · ':''}จำนวน <span class="text-emerald-600 font-medium">+${c.quantity}</span> ${escapeHtml(c.unit)}</p>
+      </div>
+      <button onclick="removeFromReceiveCart('${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+    </div>`).join('') || `<p class="text-center text-slate-300 py-8 text-sm">ยังไม่มีรายการในตะกร้า เพิ่มรายการจากฟอร์มด้านซ้ายก่อนยืนยัน</p>`;
+  $('#confirmBatchBtn').disabled = receiveCart.length === 0;
+  lucide.createIcons();
+}
+
+function openReceiveConfirmModal(){
+  if(receiveCart.length === 0) return;
+  const batchNote = $('#rc_batch_note').value.trim();
+  openModal('ยืนยันการรับเข้าวัสดุ', `
+    <p class="text-sm text-slate-500 mb-3">กรุณาตรวจสอบรายการให้ถูกต้องก่อนยืนยัน (รวม ${receiveCart.length} รายการ)</p>
+    <div class="max-h-72 overflow-y-auto space-y-2 mb-4">
+      ${receiveCart.map(c=>`
+        <div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm">
+          <div class="min-w-0">
+            <p class="text-slate-700 truncate">${escapeHtml(c.material_name)}</p>
+            ${c.note?`<p class="text-xs text-slate-400 truncate">${escapeHtml(c.note)}</p>`:''}
+          </div>
+          <span class="font-medium text-emerald-600 shrink-0">+${c.quantity} ${escapeHtml(c.unit)}</span>
+        </div>`).join('')}
+    </div>
+    ${batchNote?`<p class="text-xs text-slate-400 mb-4">หมายเหตุรวม: ${escapeHtml(batchNote)}</p>`:''}
+    <div class="flex justify-end gap-2">
+      <button type="button" onclick="closeModal()" class="btn-secondary">ย้อนกลับแก้ไข</button>
+      <button type="button" onclick="submitReceiveBatch()" class="btn-primary">ยืนยันการรับเข้า</button>
+    </div>
+  `);
+}
+
+async function submitReceiveBatch(){
+  if(receiveCart.length === 0){ closeModal(); return; }
+  const batchNote = $('#rc_batch_note')?.value.trim() || null;
+  closeModal();
+  showLoader();
+  const items = [...receiveCart];
+  let doneCount = 0;
+  let failedItemName = null;
+  for(const item of items){
+    try{
+      const note = [batchNote, item.note].filter(Boolean).join(' — ') || null;
+      const { data: tx, error: e1 } = await dbClient.from('material_stock_transactions').insert({
+        material_id: item.material_id, type:'รับเข้า', quantity: item.quantity, note, performed_by: state.user.id
+      }).select().single();
+      if(e1) throw e1;
+      state.stockTx.unshift(tx);
+      const mat = state.materials.find(m=>m.id===item.material_id);
+      const newQty = Number(mat.quantity) + Number(item.quantity);
+      const { data: updatedMat, error: e2 } = await dbClient.from('materials').update({quantity:newQty}).eq('id', item.material_id).select().single();
+      if(e2) throw e2;
+      Object.assign(mat, updatedMat);
+      doneCount++;
+      receiveCart = receiveCart.filter(c=>c.tempId !== item.tempId);
+    }catch(err){ failedItemName = item.material_name; break; }
+  }
+  hideLoader();
+  renderReceiveCart();
+  renderReceiveHistory();
+  if(failedItemName){
+    showToast(`บันทึกสำเร็จ ${doneCount} รายการ แต่ล้มเหลวที่ "${failedItemName}" กรุณาลองใหม่`,'error');
+  } else {
+    $('#rc_batch_note').value = '';
+    showToast(`บันทึกรับเข้าวัสดุสำเร็จ ${doneCount} รายการ`,'success');
+  }
 }
 
 function renderReceiveHistory(){
@@ -1381,31 +1483,6 @@ function renderReceiveHistory(){
       <td class="py-2 pr-3">${escapeHtml(getUserName(t.performed_by))}</td>
       <td class="py-2 text-slate-400">${escapeHtml(t.note||'-')}</td>
     </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการรับเข้า</td></tr>`;
-}
-
-async function submitReceiveForm(e){
-  e.preventDefault();
-  showLoader();
-  try{
-    const materialId = $('#rc_material_id').value;
-    const qty = Number($('#rc_quantity').value);
-    const note = $('#rc_note').value.trim() || null;
-    if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); hideLoader(); return; }
-    const { data: tx, error: e1 } = await dbClient.from('material_stock_transactions').insert({
-      material_id: materialId, type:'รับเข้า', quantity: qty, note, performed_by: state.user.id
-    }).select().single();
-    if(e1) throw e1;
-    state.stockTx.unshift(tx);
-    const mat = state.materials.find(m=>m.id===materialId);
-    const newQty = Number(mat.quantity) + qty;
-    const { data: updatedMat, error: e2 } = await dbClient.from('materials').update({quantity:newQty}).eq('id', materialId).select().single();
-    if(e2) throw e2;
-    Object.assign(mat, updatedMat);
-    $('#receiveForm').reset();
-    renderReceiveHistory();
-    showToast('บันทึกรับเข้าวัสดุสำเร็จ','success');
-  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
-  finally{ hideLoader(); }
 }
 
 // ---------------------------------------------------------------------------
