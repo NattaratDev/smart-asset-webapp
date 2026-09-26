@@ -242,6 +242,7 @@ const MENU_ITEMS = {
   assetRepair: { label: 'ซ่อมบำรุง', icon: 'wrench' },
   assetLoan:   { label: 'ยืม-คืน', icon: 'repeat' },
   repAssetReg: { label: 'รายงานทะเบียนครุภัณฑ์', short: 'รายงานทะเบียน', icon: 'clipboard-list' },
+  repAssetDep: { label: 'รายงานค่าเสื่อมราคา', short: 'ค่าเสื่อมราคา', icon: 'trending-down' },
   repAssetRepair: { label: 'รายงานการซ่อมบำรุง', short: 'รายงานซ่อม', icon: 'wrench' },
   repAssetLoan: { label: 'รายงานการยืม-คืน', short: 'รายงานยืม-คืน', icon: 'repeat' },
   employees:   { label: 'พนักงาน', icon: 'users' },
@@ -256,7 +257,7 @@ const ROLE_MENU = {
   admin: [
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
-    { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
+    { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetDep'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
     { key:'employees' },
     { key:'profile' },
     { key:'settings' },
@@ -264,7 +265,7 @@ const ROLE_MENU = {
   staff: [
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
-    { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
+    { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetDep'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
     { key:'profile' },
   ],
   employee: [
@@ -792,7 +793,7 @@ function navigate(view){
   closeAdminPanel();
   closeUserMenu();
   $('#pageTitle').textContent = item ? item.label : '';
-  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, assetReceive: renderAssetReceive, assetRepair: renderAssetRepair, assetLoan: renderAssetLoan, repAssetReg: ()=>renderReport('assetReg'), repAssetRepair: ()=>renderReport('assetRepair'), repAssetLoan: ()=>renderReport('assetLoan'), profile: renderProfile, settings: renderSettings };
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, assetReceive: renderAssetReceive, assetRepair: renderAssetRepair, assetLoan: renderAssetLoan, repAssetReg: ()=>renderReport('assetReg'), repAssetDep: ()=>renderReport('assetDep'), repAssetRepair: ()=>renderReport('assetRepair'), repAssetLoan: ()=>renderReport('assetLoan'), profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
   openMenuAncestors(view);
@@ -2928,8 +2929,8 @@ function printStockCard(materialId){
 // ---------------------------------------------------------------------------
 // รายงานวัสดุ: รับเข้า / เบิก / คงเหลือ (พิมพ์ A4 - PDF และส่งออก CSV)
 // ---------------------------------------------------------------------------
-const reportState = { receive:{month:''}, issue:{month:'',status:''}, balance:{month:'',category:''}, assetReg:{status:'',category:''}, assetRepair:{month:'',status:''}, assetLoan:{month:'',status:''} };
-const REPORT_TITLES = { receive:'รายงานการรับเข้าวัสดุ', issue:'รายงานการเบิกวัสดุ', balance:'รายงานวัสดุคงเหลือ', assetReg:'รายงานทะเบียนครุภัณฑ์', assetRepair:'รายงานการซ่อมบำรุงครุภัณฑ์', assetLoan:'รายงานการยืม-คืนครุภัณฑ์' };
+const reportState = { receive:{month:''}, issue:{month:'',status:''}, balance:{month:'',category:''}, assetReg:{status:'',category:''}, assetDep:{fy:'',category:''}, assetRepair:{month:'',status:''}, assetLoan:{month:'',status:''} };
+const REPORT_TITLES = { receive:'รายงานการรับเข้าวัสดุ', issue:'รายงานการเบิกวัสดุ', balance:'รายงานวัสดุคงเหลือ', assetReg:'รายงานทะเบียนครุภัณฑ์', assetDep:'รายงานค่าเสื่อมราคาครุภัณฑ์', assetRepair:'รายงานการซ่อมบำรุงครุภัณฑ์', assetLoan:'รายงานการยืม-คืนครุภัณฑ์' };
 
 function dateMonthKey(v){
   const d = new Date(v);
@@ -2946,13 +2947,13 @@ function reportMonthKeys(kind){
   else if(kind === 'issue') dates = scopedIssueRequests().map(r=>r.created_at);
   else if(kind === 'assetRepair') dates = state.assetRepairs.map(r=>repairDate(r));
   else if(kind === 'assetLoan') dates = state.assetLoans.map(l=>l.created_at);
-  else if(kind === 'assetReg') dates = [];
+  else if(kind === 'assetReg' || kind === 'assetDep') dates = [];
   else dates = state.stockTx.map(t=>t.created_at);
   return [...new Set(dates.map(dateMonthKey))].sort().reverse();
 }
 
 function buildReportCfg(kind){
-  if(kind === 'assetReg' || kind === 'assetRepair' || kind === 'assetLoan') return buildAssetReportCfg(kind);
+  if(kind === 'assetReg' || kind === 'assetDep' || kind === 'assetRepair' || kind === 'assetLoan') return buildAssetReportCfg(kind);
   const st = reportState[kind];
   const monthText = st.month ? monthKeyLabel(st.month) : null;
   if(kind === 'receive'){
@@ -3031,6 +3032,38 @@ function buildAssetReportCfg(kind){
       summary: `ทั้งหมด ${rows.length} รายการ · มูลค่ารวม ${fmtMoney(total)} บาท`,
     };
   }
+  if(kind === 'assetDep'){
+    const cur = getCurrentFiscalYearBE();
+    const fyBE = Number(st.fy) || cur;
+    const fyEnd = new Date(fyBE - 543, 8, 30);
+    const today = new Date();
+    const asOf = today < fyEnd ? today : fyEnd;
+    const prevEnd = new Date(fyBE - 543 - 1, 8, 30);
+    const fyEndStr = dateStr(fyEnd);
+    const list = state.assets.filter(a=>a.status!=='จำหน่ายแล้ว' && a.purchase_date && a.purchase_date <= fyEndStr && (!st.category || a.category===st.category))
+      .slice().sort((x,y)=>String(x.asset_code||'').localeCompare(String(y.asset_code||'')));
+    const t = { cost:0, begin:0, year:0, end:0, net:0 };
+    let noLife = 0;
+    const rows = list.map((a,i)=>{
+      const cost = Number(a.purchase_price||0);
+      const now = assetDepreciation(a, asOf);
+      const prev = assetDepreciation(a, prevEnd);
+      if(!now.ready) noLife++;
+      const begin = now.ready ? prev.accumulated : 0, end = now.ready ? now.accumulated : 0, year = end - begin, net = cost - end;
+      t.cost += cost; t.begin += begin; t.year += year; t.end += end; t.net += net;
+      return [i+1, a.asset_code||'-', a.name, fmtDateOnly(a.purchase_date), fmtMoney(cost), a.useful_life_years ? a.useful_life_years : '-', now.ready ? now.rate.toFixed(2) : '-', now.ready ? fmtMoney(begin) : '-', now.ready ? fmtMoney(year) : '-', now.ready ? fmtMoney(end) : '-', fmtMoney(net)];
+    });
+    const asOfText = formatThaiLongDate(asOf);
+    return {
+      title: REPORT_TITLES.assetDep,
+      landscape: true,
+      meta: [['ปีงบประมาณ', String(fyBE)], ['ประเภท', st.category || 'ทุกประเภท'], ['ข้อมูล ณ วันที่', asOfText], ['หมายเหตุ', 'ไม่รวมครุภัณฑ์ที่จำหน่ายแล้ว']],
+      headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'รหัส',w:'28mm'},{label:'รายการ'},{label:'วันที่ได้มา',w:'22mm'},{label:'ราคาทุน',align:'right',w:'24mm'},{label:'อายุ (ปี)',align:'center',w:'14mm'},{label:'อัตรา (%)',align:'center',w:'15mm'},{label:'ค่าเสื่อมสะสมต้นปี',align:'right',w:'25mm'},{label:'ค่าเสื่อมปีนี้',align:'right',w:'24mm'},{label:'ค่าเสื่อมสะสมปลายปี',align:'right',w:'26mm'},{label:'มูลค่าสุทธิ',align:'right',w:'24mm'}],
+      rows,
+      footer: ['','','รวม '+rows.length+' รายการ','',fmtMoney(t.cost),'','',fmtMoney(t.begin),fmtMoney(t.year),fmtMoney(t.end),fmtMoney(t.net)],
+      summary: `ครุภัณฑ์ ${rows.length} รายการ · ราคาทุนรวม ${fmtMoney(t.cost)} บาท · ค่าเสื่อมปี ${fyBE} ${fmtMoney(t.year)} บาท · มูลค่าสุทธิรวม ${fmtMoney(t.net)} บาท${noLife ? ` · ยังไม่กำหนดอายุใช้งาน ${noLife} รายการ` : ''}`,
+    };
+  }
   if(kind === 'assetRepair'){
     const list = state.assetRepairs.filter(r=>r.status!=='ยกเลิก' && (!st.month||dateMonthKey(repairDate(r))===st.month))
       .slice().sort((x,y)=>repairDate(x).localeCompare(repairDate(y)));
@@ -3090,7 +3123,7 @@ function reportSheetHtml(cfg){
   const th = cfg.headers.map(h=>`<th style="${h.w?`width:${h.w};`:''}background:#f1f5f9;-webkit-print-color-adjust:exact;print-color-adjust:exact">${h.label}</th>`).join('');
   const rows = cfg.rows.map(r=>`<tr>${r.map((c,i)=>`<td style="${al(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
   const foot = cfg.rows.length ? `<tr>${cfg.footer.map((c,i)=>`<td style="${al(cfg.headers[i].align)};font-weight:600">${escapeHtml(c)}</td>`).join('')}</tr>` : '';
-  return `<div class="a4-sheet">
+  return `<div class="a4-sheet${cfg.landscape?' land':''}">
     <div style="text-align:center">
       ${orgHeaderHtml({nameOnly:true})}
       <div style="font-size:22px;font-weight:700;margin-top:2mm">${escapeHtml(cfg.title)}</div>
@@ -3116,6 +3149,14 @@ function reportFilterDefs(kind){
   if(kind === 'balance') return [monthDef, { key:'category', label:'หมวดหมู่', options:[['','ทุกหมวดหมู่'], ...MATERIAL_CATEGORIES.map(c=>[c,c])] }];
   if(kind === 'assetReg'){
     return [statusDef(ASSET_STATUSES), { key:'category', label:'ประเภท', options:[['','ทุกประเภท'], ...assetCategoriesInUse().map(c=>[c,c])] }];
+  }
+  if(kind === 'assetDep'){
+    const cur = getCurrentFiscalYearBE();
+    const years = state.assets.map(a=>a.purchase_date ? Number(String(a.purchase_date).slice(0,4)) + 543 + (Number(String(a.purchase_date).slice(5,7)) >= 10 ? 1 : 0) : cur);
+    const from = Math.min(cur, ...years);
+    const list = []; for(let y=cur; y>=from; y--) list.push(String(y));
+    if(!st.fy || !list.includes(st.fy)) st.fy = String(cur);
+    return [{ key:'fy', label:'ปีงบประมาณ', options: list.map(y=>[y, 'ปีงบประมาณ '+y]) }, { key:'category', label:'ประเภท', options:[['','ทุกประเภท'], ...assetCategoriesInUse().map(c=>[c,c])] }];
   }
   if(kind === 'assetRepair') return [monthDef];
   return [monthDef, statusDef(['รออนุมัติ','ยืมอยู่','เกินกำหนด','คืนแล้ว','ไม่อนุมัติ','ยกเลิก'])];
@@ -3155,7 +3196,14 @@ function updateReportView(kind){
 }
 
 function printReport(kind){
-  $('#printArea').innerHTML = reportSheetHtml(buildReportCfg(kind));
+  const cfg = buildReportCfg(kind);
+  $('#printArea').innerHTML = reportSheetHtml(cfg);
+  if(cfg.landscape){
+    const st = document.createElement('style');
+    st.textContent = '@media print { @page { size:A4 landscape; margin:0 } }';
+    document.head.appendChild(st);
+    window.addEventListener('afterprint', () => st.remove(), { once:true });
+  }
   printArea();
 }
 
