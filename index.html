@@ -1492,18 +1492,14 @@ function renderReceiveHistory(){
 let issueCart = [];
 
 function renderMatIssue(){
-  const isPriv = state.user.role !== 'employee';
   $('#mainContent').innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
-      <div class="relative w-full sm:w-72">
-        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
-        <input id="issueSearch" oninput="renderIssueTable()" placeholder="ค้นหาใบเบิกที่รอดำเนินการ..." class="input-field pl-9">
-      </div>
+      <h3 class="font-semibold text-slate-600">ใบเบิกวัสดุล่าสุดของฉัน</h3>
       <button onclick="openIssueCreateModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>
     </div>
-    <p class="text-xs text-slate-400 mb-4">${isPriv?'แสดงใบเบิกที่รออนุมัติ':'แสดงใบเบิกของคุณที่รออนุมัติ (ยกเลิกได้)'} · ดูสถานะทั้งหมดได้ที่เมนู "ติดตามสถานะการเบิก"</p>
+    <p class="text-xs text-slate-400 mb-4">หน้านี้ใช้สำหรับเบิกวัสดุเท่านั้น · การอนุมัติ ยกเลิก และดูสถานะทำได้ที่เมนู "ติดตามสถานะการเบิก"</p>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
-      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">เหตุผล</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
+      <th class="py-2 pr-3">เลขที่ใบเบิก</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2">วันที่</th>
     </tr></thead><tbody id="issueTableBody"></tbody></table></div>
   `;
   lucide.createIcons();
@@ -1511,30 +1507,17 @@ function renderMatIssue(){
 }
 
 function renderIssueTable(){
-  const isPriv = state.user.role !== 'employee';
-  const q = ($('#issueSearch')?.value||'').toLowerCase();
-  let list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
-  list = list.filter(r=>r.status==='รออนุมัติ');
-  list = list.filter(r=>!q || (r.issue_code||'').toLowerCase().includes(q));
-  const colspan = isPriv ? 6 : 5;
+  const list = state.issueRequests.filter(r=>r.requester_id===state.user.id).slice(0,5);
   $('#issueTableBody').innerHTML = list.map(r=>{
     const items = r.items||[];
     const summary = items.map(it=>`${it.material?.name||'-'} x${it.quantity}`).join(', ');
-    return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+    return `<tr class="border-b border-slate-50">
       <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.issue_code)}</td>
-      ${isPriv?`<td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>`:''}
       <td class="py-2 pr-3 max-w-xs truncate" title="${escapeHtml(summary)}">${items.length} รายการ: ${escapeHtml(summary)}</td>
-      <td class="py-2 pr-3 max-w-[10rem] truncate text-slate-500" title="${escapeHtml(r.reason||'')}">${escapeHtml(r.reason||'-')}</td>
-      <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
-      <td class="py-2"><div class="flex gap-2">
-        ${isPriv ? `
-          <button onclick="approveIssueRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
-          <button onclick="approveIssueRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
-        <button onclick="deleteIssueRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ยกเลิก/ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-      </div></td>
+      <td class="py-2 pr-3">${statusBadge(r.status)}</td>
+      <td class="py-2 text-slate-400">${formatDate(r.created_at)}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่มีใบเบิกที่รอดำเนินการ</td></tr>`;
-  lucide.createIcons();
+  }).join('') || `<tr><td colspan="4" class="py-8 text-center text-slate-300">ยังไม่มีใบเบิก กด "สร้างใบเบิกใหม่" เพื่อเริ่มเบิกวัสดุ</td></tr>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1568,7 +1551,7 @@ function renderMatTrack(){
       ${state.user.role==='admin'?`<button onclick="exportIssueRequestsCSV()" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
     </div>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
-      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">ติดตาม</th>
+      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
     </tr></thead><tbody id="trackTableBody"></tbody></table></div>
   `;
   lucide.createIcons();
@@ -1601,7 +1584,13 @@ function renderTrackTable(){
       <td class="py-2 pr-3 max-w-xs truncate" title="${escapeHtml(summary)}">${items.length} รายการ: ${escapeHtml(summary)}</td>
       <td class="py-2 pr-3">${statusBadge(r.status)}</td>
       <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
-      <td class="py-2"><button onclick="openIssueDetailModal('${r.id}')" class="btn-secondary !py-1.5 !px-3 text-xs gap-1"><i data-lucide="eye" class="w-3.5 h-3.5"></i>ดูสถานะ</button></td>
+      <td class="py-2"><div class="flex gap-2 items-center">
+        <button onclick="openIssueDetailModal('${r.id}')" class="btn-secondary !py-1.5 !px-3 text-xs gap-1"><i data-lucide="eye" class="w-3.5 h-3.5"></i>ดูสถานะ</button>
+        ${r.status==='รออนุมัติ' && isPriv ? `
+          <button onclick="approveIssueRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
+          <button onclick="approveIssueRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
+        ${r.status==='รออนุมัติ' && (isPriv || r.requester_id===state.user.id) ? `<button onclick="deleteIssueRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ยกเลิก/ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+      </div></td>
     </tr>`;
   }).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่พบใบเบิกวัสดุ</td></tr>`;
   lucide.createIcons();
@@ -1720,6 +1709,15 @@ function openIssueDetailModal(id){
   lucide.createIcons();
 }
 
+function refreshIssueView(){
+  if(state.currentView==='matTrack'){
+    const f = trackStatusFilter;
+    renderMatTrack();
+    trackStatusFilter = f;
+    renderTrackTable();
+  } else if(state.currentView==='matIssue') renderMatIssue();
+}
+
 function approveIssueRequest(id, approve){
   const issue = state.issueRequests.find(r=>r.id===id);
   if(!issue) return;
@@ -1743,7 +1741,7 @@ function approveIssueRequest(id, approve){
           if(tx) state.stockTx.unshift(tx);
         }
       }
-      renderMatIssue();
+      refreshIssueView();
       showToast(approve?'อนุมัติใบเบิกสำเร็จ':'ไม่อนุมัติใบเบิก','success');
     }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
@@ -1757,7 +1755,7 @@ function deleteIssueRequest(id){
       const { error } = await dbClient.from('material_issue_requests').delete().eq('id', id);
       if(error) throw error;
       state.issueRequests = state.issueRequests.filter(r=>r.id!==id);
-      renderMatIssue();
+      refreshIssueView();
       showToast('ลบสำเร็จ','success');
     }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
