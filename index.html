@@ -3229,7 +3229,8 @@ const MED_CONDITIONS = ['สภาพปกติ','ชำรุด/ต้อง
 let medStatusFilter = '';
 
 function activeMedLoanOf(eqId){ return state.medLoans.find(l=>l.equipment_id===eqId && l.status==='ยืมอยู่'); }
-function isMedLoanOverdue(l){ return l.status==='ยืมอยู่' && l.due_date < todayStr(); }
+function isMedLoanOverdue(l){ return l.status==='ยืมอยู่' && !!l.due_date && l.due_date < todayStr(); }
+function medDueText(l){ return l.due_date ? fmtDateOnly(l.due_date) : 'ไม่กำหนด'; }
 function medEquipStatus(e){ return activeMedLoanOf(e.id) ? 'ถูกยืม' : e.status; }
 function medEquipLabel(id){ const e = state.medEquipment.find(x=>x.id===id); return e ? `${e.name} (${e.equipment_code})` : '-'; }
 function medEquipCodeTaken(code, exceptId){
@@ -3295,7 +3296,7 @@ function renderMedEquipTable(){
       <td class="py-2 pr-3 text-slate-500">${escapeHtml(e.brand_model||'-')}</td>
       <td class="py-2 pr-3 text-slate-500">${escapeHtml(e.serial_number||'-')}</td>
       <td class="py-2 pr-3 text-slate-500">${escapeHtml(e.location||'-')}</td>
-      <td class="py-2 pr-3">${statusBadge(medEquipStatus(e))}${loan?`<p class="text-[11px] text-slate-400 mt-0.5">${escapeHtml(loan.borrower_name)} · คืนภายใน ${fmtDateOnly(loan.due_date)}${isMedLoanOverdue(loan)?' <span class="text-rose-500">(เกินกำหนด)</span>':''}</p>`:''}</td>
+      <td class="py-2 pr-3">${statusBadge(medEquipStatus(e))}${loan?`<p class="text-[11px] text-slate-400 mt-0.5">${escapeHtml(loan.borrower_name)} · ${loan.due_date ? 'คืนภายใน '+fmtDateOnly(loan.due_date) : 'ไม่กำหนดวันคืน'}${isMedLoanOverdue(loan)?' <span class="text-rose-500">(เกินกำหนด)</span>':''}</p>`:''}</td>
       <td class="py-2"><div class="flex gap-2">
         <button onclick="openMedHistory('${e.id}')" class="w-8 h-8 rounded-lg bg-amber-50 text-amber-500 flex items-center justify-center" title="ประวัติการยืม-คืน"><i data-lucide="history" class="w-4 h-4"></i></button>
         ${canManage?`<button onclick="openMedEquipModal('${e.id}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center" title="แก้ไข"><i data-lucide="pencil" class="w-4 h-4"></i></button>
@@ -3394,7 +3395,7 @@ function openMedHistory(id){
     <div class="space-y-2 max-h-80 overflow-y-auto">
       ${loans.map(l=>`<div class="bg-slate-50 rounded-xl px-3 py-2 text-sm">
         <div class="flex items-center justify-between gap-2"><span class="font-medium text-slate-700 truncate">${escapeHtml(l.borrower_name)}</span>${statusBadge(l.status)}</div>
-        <p class="text-xs text-slate-400">${escapeHtml(l.loan_code)} · ยืม ${fmtDateOnly(l.loan_date)} · กำหนดคืน ${fmtDateOnly(l.due_date)}${l.returned_at?' · คืน '+fmtDateOnly(l.returned_at):''}${l.return_condition?' · '+escapeHtml(l.return_condition):''}</p>
+        <p class="text-xs text-slate-400">${escapeHtml(l.loan_code)} · ยืม ${fmtDateOnly(l.loan_date)} · กำหนดคืน ${medDueText(l)}${l.returned_at?' · คืน '+fmtDateOnly(l.returned_at):''}${l.return_condition?' · '+escapeHtml(l.return_condition):''}</p>
       </div>`).join('') || '<p class="text-center text-slate-300 py-6 text-sm">ยังไม่มีประวัติการยืม</p>'}
     </div>
   `, 'max-w-lg', true);
@@ -3409,7 +3410,7 @@ function medLoanTableHtml(list, { withAction }){
     <td class="py-2 pr-3">${escapeHtml(medEquipLabel(l.equipment_id))}</td>
     <td class="py-2 pr-3">${escapeHtml(l.borrower_name)}${l.borrower_phone?`<p class="text-[11px] text-slate-400">โทร. ${escapeHtml(l.borrower_phone)}</p>`:''}</td>
     <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${fmtDateOnly(l.loan_date)}</td>
-    <td class="py-2 pr-3 whitespace-nowrap ${isMedLoanOverdue(l)?'text-rose-500 font-medium':'text-slate-500'}">${fmtDateOnly(l.due_date)}${isMedLoanOverdue(l)?' (เกินกำหนด)':''}</td>
+    <td class="py-2 pr-3 whitespace-nowrap ${isMedLoanOverdue(l)?'text-rose-500 font-medium':'text-slate-500'}">${medDueText(l)}${isMedLoanOverdue(l)?' (เกินกำหนด)':''}</td>
     ${withAction?`<td class="py-2"><button onclick="openMedReturnModal('${l.id}')" class="btn-primary !py-1.5 !px-3 text-xs">รับคืน</button></td>`:''}
   </tr>`).join('') || `<tr><td colspan="${withAction?6:5}" class="py-8 text-center text-slate-300">ไม่มีรายการที่กำลังยืม</td></tr>`}</tbody></table></div>`;
 }
@@ -3417,7 +3418,7 @@ function medLoanTableHtml(list, { withAction }){
 function renderMedLoan(){
   const available = state.medEquipment.filter(e=>e.status==='พร้อมใช้งาน' && !activeMedLoanOf(e.id))
     .sort((a,b)=>String(a.equipment_code).localeCompare(String(b.equipment_code)));
-  const active = state.medLoans.filter(l=>l.status==='ยืมอยู่').sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
+  const active = state.medLoans.filter(l=>l.status==='ยืมอยู่').sort((a,b)=>String(a.due_date||'9999').localeCompare(String(b.due_date||'9999')));
   $('#mainContent').innerHTML = `
     <div class="grid lg:grid-cols-3 gap-5">
       <div class="card lg:col-span-1 h-fit">
@@ -3431,7 +3432,7 @@ function renderMedLoan(){
             <div><label class="text-sm text-slate-500">วันที่ยืม *</label><input id="ml_date" type="date" required value="${todayStr()}" class="input-field"></div>
           </div>
           <div><label class="text-sm text-slate-500">ที่อยู่ผู้ยืม</label><input id="ml_address" class="input-field"></div>
-          <div><label class="text-sm text-slate-500">กำหนดคืน *</label><input id="ml_due" type="date" required value="${addDaysStr(7)}" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">กำหนดคืน <span class="text-xs text-slate-300">(ไม่บังคับ เว้นว่างได้ถ้ายืมระยะยาว)</span></label><input id="ml_due" type="date" class="input-field"></div>
           <div><label class="text-sm text-slate-500">วัตถุประสงค์/ผู้ป่วยที่ใช้</label><textarea id="ml_purpose" rows="2" class="input-field"></textarea></div>
           <button type="submit" class="btn-primary w-full justify-center gap-2"><i data-lucide="check" class="w-4 h-4"></i>บันทึกการยืม</button>
         </form>` : `<p class="text-sm text-slate-400 py-6 text-center">ไม่มีอุปกรณ์ที่พร้อมให้ยืมในขณะนี้</p>`}
@@ -3453,7 +3454,7 @@ async function submitMedLoan(e){
   const loanDate = $('#ml_date').value;
   const dueDate = $('#ml_due').value;
   if(!equipmentId || !name){ showToast('กรุณาเลือกอุปกรณ์และกรอกชื่อผู้ยืม','error'); return; }
-  if(dueDate < loanDate){ showToast('กำหนดคืนต้องไม่ก่อนวันที่ยืม','error'); return; }
+  if(dueDate && dueDate < loanDate){ showToast('กำหนดคืนต้องไม่ก่อนวันที่ยืม','error'); return; }
   showLoader();
   try{
     const eq = state.medEquipment.find(x=>x.id===equipmentId);
@@ -3464,7 +3465,7 @@ async function submitMedLoan(e){
       borrower_phone: $('#ml_phone').value.trim() || null,
       borrower_address: $('#ml_address').value.trim() || null,
       purpose: $('#ml_purpose').value.trim() || null,
-      loan_date: loanDate, due_date: dueDate, status: 'ยืมอยู่', lent_by: state.user.id,
+      loan_date: loanDate, due_date: dueDate || null, status: 'ยืมอยู่', lent_by: state.user.id,
     }).select().single();
     if(error) throw error;
     state.medLoans.unshift(data);
@@ -3491,7 +3492,7 @@ function renderMedReturn(){
 function renderMedReturnTables(){
   const q = ($('#medRetSearch')?.value||'').toLowerCase();
   const match = l => !q || (l.loan_code||'').toLowerCase().includes(q) || (l.borrower_name||'').toLowerCase().includes(q) || medEquipLabel(l.equipment_id).toLowerCase().includes(q);
-  const pending = state.medLoans.filter(l=>l.status==='ยืมอยู่' && match(l)).sort((a,b)=>String(a.due_date).localeCompare(String(b.due_date)));
+  const pending = state.medLoans.filter(l=>l.status==='ยืมอยู่' && match(l)).sort((a,b)=>String(a.due_date||'9999').localeCompare(String(b.due_date||'9999')));
   const done = state.medLoans.filter(l=>l.status==='คืนแล้ว' && match(l)).sort((a,b)=>String(b.returned_at).localeCompare(String(a.returned_at)));
   $('#medPendCount').textContent = pending.length;
   $('#medPending').innerHTML = medLoanTableHtml(pending, { withAction:true });
@@ -3513,7 +3514,7 @@ function openMedReturnModal(id){
   const l = state.medLoans.find(x=>x.id===id);
   if(!l || l.status!=='ยืมอยู่') return;
   openModal(`รับคืนอุปกรณ์ ${l.loan_code}`, `
-    <p class="text-sm text-slate-500 mb-3">${escapeHtml(medEquipLabel(l.equipment_id))}<br>ผู้ยืม ${escapeHtml(l.borrower_name)} · ยืมเมื่อ ${fmtDateOnly(l.loan_date)} · กำหนดคืน ${fmtDateOnly(l.due_date)}${isMedLoanOverdue(l)?' <span class="text-rose-500">(เกินกำหนด)</span>':''}</p>
+    <p class="text-sm text-slate-500 mb-3">${escapeHtml(medEquipLabel(l.equipment_id))}<br>ผู้ยืม ${escapeHtml(l.borrower_name)} · ยืมเมื่อ ${fmtDateOnly(l.loan_date)} · กำหนดคืน ${medDueText(l)}${isMedLoanOverdue(l)?' <span class="text-rose-500">(เกินกำหนด)</span>':''}</p>
     <form id="medReturnForm" class="space-y-3">
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-sm text-slate-500">วันที่คืน *</label><input id="mr_date" type="date" required min="${l.loan_date}" value="${todayStr() < l.loan_date ? l.loan_date : todayStr()}" class="input-field"></div>

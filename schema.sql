@@ -243,7 +243,7 @@ create table public.medical_loans (
   borrower_address text,
   purpose          text,
   loan_date        date not null default current_date,
-  due_date         date not null,
+  due_date         date,   -- กำหนดคืน (ไม่บังคับ ผู้ป่วยบางรายยืมระยะยาว)
   status           text not null default 'ยืมอยู่' check (status in ('ยืมอยู่','คืนแล้ว')),
   returned_at      date,
   return_condition text,
