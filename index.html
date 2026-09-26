@@ -47,7 +47,10 @@
   .a4-sheet th { text-align:center; font-weight:600; }
   .a4-sheet thead { display:table-header-group; }
   .a4-sheet tr { page-break-inside:avoid; }
-  .a4-sheet.land { width:297mm; min-height:210mm; padding:9mm 12mm; font-size:13px; line-height:1.55; }
+  .ledger-preview .a4-sheet + .a4-sheet { margin-top:6mm; }
+  .ledger-fill { flex:1; display:flex; flex-direction:column; }
+  .ledger-fill table { flex:1 1 auto; }
+  .a4-sheet.land { display:flex; flex-direction:column; width:297mm; min-height:207mm; padding:9mm 12mm; font-size:13px; line-height:1.55; }
   .a4-dots { display:inline-block; border-bottom:1px dotted #111; min-width:50mm; text-align:center; }
   @media print {
     @page { size:A4; margin:0; }
@@ -1315,6 +1318,26 @@ function assetDepreciation(a, asOf = new Date()){
 }
 
 function shortThaiDate(d){ const x = new Date(d); return `${x.getDate()} ${TH_MONTHS_SHORT[x.getMonth()]} ${x.getFullYear()+543}`; }
+function assetRepairHistoryHtml(a){
+  const list = state.assetRepairs
+    .filter(r=>r.asset_id===a.id && r.status!=='ยกเลิก')
+    .map(r=>({ r, date: r.completed_at || r.started_at || r.created_at }))
+    .sort((x,y)=>new Date(x.date)-new Date(y.date));
+  const rows = list.map(({r,date},i)=>{
+    const detail = [r.problem, r.result_note ? 'ผล: '+r.result_note : '', r.vendor ? 'ผู้ซ่อม: '+r.vendor : ''].filter(Boolean).map(escapeHtml).join(' · ');
+    return `<tr style="height:11mm"><td style="text-align:center">${i+1}</td><td style="text-align:center">${shortThaiDate(date)}</td><td>${detail}</td><td style="text-align:right">${r.cost!=null ? fmtMoney(r.cost) : ''}</td><td style="font-size:11px">${escapeHtml(r.status)} (${escapeHtml(r.repair_code||'')})</td></tr>`;
+  });
+  while(rows.length < 10) rows.push('<tr style="height:11mm"><td></td><td></td><td></td><td></td><td></td></tr>');
+  return `<div class="a4-sheet land">
+    <div style="text-align:center;font-size:20px;font-weight:700">ประวัติการซ่อมบำรุงรักษาทรัพย์สิน</div>
+    <div style="text-align:center;font-size:12px;color:#444;margin-bottom:2mm">${escapeHtml(a.asset_code||'')} ${escapeHtml(a.name)}</div>
+    <div class="ledger-fill"><table style="table-layout:fixed">
+      <thead><tr><th style="width:22mm;height:9mm">ครั้งที่</th><th style="width:40mm">วัน เดือน ปี</th><th>รายการ</th><th style="width:40mm">จำนวนเงิน</th><th style="width:48mm">หมายเหตุ</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table></div>
+  </div>`;
+}
+
 function assetLedgerHtml(a){
   const o = orgInfo();
   const dep = assetDepreciation(a);
@@ -1340,13 +1363,12 @@ function assetLedgerHtml(a){
   </tr>`);
   rows.push(`<tr>${blank}${blank}<td>${escapeHtml(a.asset_code||'')}</td>${blank}${blank}${blank}${blank}${blank}${blank}${blank}<td style="font-size:11px">${escapeHtml(a.location||'')}</td></tr>`);
   dep.rows.forEach(r=>{
-    rows.push(`<tr><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td>${blank}<td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}${r.partial?' (ถึงปัจจุบัน)':''}</td>${blank}${blank}${blank}${blank}${blank}${num(fmtMoney(r.amount))}${num(fmtMoney(r.net))}<td style="font-size:11px">สะสม ${fmtMoney(r.accumulated)}</td></tr>`);
+    rows.push(`<tr><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td>${blank}<td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}</td>${blank}${blank}${blank}${blank}${blank}${num(fmtMoney(r.amount))}${num(fmtMoney(r.net))}<td style="font-size:11px">สะสม ${fmtMoney(r.accumulated)}</td></tr>`);
   });
   if(a.status === 'จำหน่ายแล้ว') rows.push(`<tr>${blank}${blank}<td>สถานะ: จำหน่ายแล้ว</td>${blank.repeat(8)}</tr>`);
-  while(rows.length < 8) rows.push(`<tr>${blank.repeat(11)}</tr>`);
-  const sign = label => `<div style="text-align:center"><div>(ลงชื่อ)<span class="a4-dots" style="min-width:50mm"></span>${label}</div><div>(<span style="display:inline-block;min-width:50mm">&nbsp;</span>)</div></div>`;
+  while(rows.length < 9) rows.push(`<tr>${blank.repeat(11)}</tr>`);
   const th = (t, w, extra='') => `<th style="${w?'width:'+w+';':''}${extra}">${t}</th>`;
-  return `<div class="a4-sheet land">
+  return `<div class="a4-sheet land" style="page-break-after:always">
     <div style="text-align:center;font-size:20px;font-weight:700">ทะเบียนคุมทรัพย์สิน</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 7mm;margin-top:2mm">
       ${fld('ส่วนราชการ', o.name)}${fld('หน่วยงาน', o.name)}
@@ -1356,16 +1378,15 @@ function assetLedgerHtml(a){
     ${grid('1.6fr 1fr', [fld('ที่อยู่', a.supplier_address), fld('โทรศัพท์', a.supplier_phone)])}
     <div style="margin-top:1.5mm"><b style="margin-right:4mm">ประเภทเงิน</b>${box(ASSET_FUND_TYPES, a.fund_type)}</div>
     <div style="margin-top:.5mm"><b style="margin-right:4mm">วิธีการได้มา</b>${box(ASSET_ACQ_METHODS, a.acquisition_method)}</div>
-    <table style="margin-top:3mm;font-size:12px;table-layout:fixed">
+    <div class="ledger-fill" style="margin-top:3mm"><table style="font-size:12px;table-layout:fixed">
       <thead><tr>
         ${th('วัน เดือน ปี','25mm')}${th('ที่เอกสาร','22mm')}${th('รายการ','')}${th('จำนวนหน่วย','16mm')}${th('ราคาต่อหน่วย/ ชุด/กลุ่ม','26mm')}${th('มูลค่ารวม','26mm')}${th('อายุใช้งาน','16mm')}${th('อัตราค่า เสื่อมราคา','19mm')}${th('ค่าเสื่อม ราคา','24mm')}${th('มูลค่าสุทธิ','26mm')}${th('หมายเหตุ','27mm')}
       </tr></thead>
       <tbody>${rows.map(r=>r.replace('<tr>','<tr style="height:7mm">')).join('')}</tbody>
-    </table>
+    </table></div>
     ${dep.ready ? '' : '<div style="font-size:11px;color:#666;margin-top:1mm">* ยังไม่ได้กำหนดอายุการใช้งาน/ราคา/วันที่ได้มา จึงไม่คำนวณค่าเสื่อมราคา (แก้ไขได้ที่ทะเบียนครุภัณฑ์)</div>'}
     <div style="font-size:10.5px;color:#555;margin-top:1mm">ค่าเสื่อมราคาคำนวณแบบเส้นตรง มูลค่าซาก 1 บาท ตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8mm;margin-top:7mm">${sign('ผู้จัดทำ (เจ้าหน้าที่พัสดุ)')}${sign('ผู้ตรวจสอบ (หัวหน้าหน่วยพัสดุ)')}</div>
-  </div>`;
+  </div>` + assetRepairHistoryHtml(a);
 }
 
 function openAssetLedger(id){
@@ -1374,9 +1395,9 @@ function openAssetLedger(id){
   openModal(`ทะเบียนคุมทรัพย์สิน ${a.asset_code||''}`, `
     <div class="flex justify-end gap-2 mb-3">
       <button onclick="closeModal()" class="btn-secondary">ปิด</button>
-      <button onclick="printAssetLedger('${a.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF (A4 แนวนอน)</button>
+      <button onclick="printAssetLedger('${a.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF (A4 แนวนอน 2 หน้า)</button>
     </div>
-    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:297mm;zoom:.8;margin:0 auto">${assetLedgerHtml(a)}</div></div>
+    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div class="ledger-preview" style="width:297mm;zoom:.8;margin:0 auto">${assetLedgerHtml(a)}</div></div>
   `, 'max-w-5xl', true);
   lucide.createIcons();
 }
