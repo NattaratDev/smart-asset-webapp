@@ -47,6 +47,7 @@
   .a4-sheet th { text-align:center; font-weight:600; }
   .a4-sheet thead { display:table-header-group; }
   .a4-sheet tr { page-break-inside:avoid; }
+  .a4-sheet.land { width:297mm; min-height:210mm; padding:9mm 12mm; font-size:13px; line-height:1.55; }
   .a4-dots { display:inline-block; border-bottom:1px dotted #111; min-width:50mm; text-align:center; }
   @media print {
     @page { size:A4; margin:0; }
@@ -1318,44 +1319,52 @@ function assetLedgerHtml(a){
   const o = orgInfo();
   const dep = assetDepreciation(a);
   const resp = state.users.find(u=>u.id===a.responsible_user_id);
-  const box = (list, val) => list.map(x=>`<span style="margin-right:4mm;white-space:nowrap">${val===x?'&#9745;':'&#9744;'} ${escapeHtml(x)}</span>`).join('');
-  const line = (label, val, extra='') => `<div style="display:flex;gap:2mm;margin-top:1mm;${extra}"><span style="white-space:nowrap">${label}</span><span style="flex:1;border-bottom:1px dotted #111;padding:0 2mm;min-height:6mm">${val ? escapeHtml(val) : '&nbsp;'}</span></div>`;
-  const half = (l1, v1, l2, v2) => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 6mm">${line(l1,v1)}${line(l2,v2)}</div>`;
+  const box = (list, val) => list.map(x=>`<span style="margin-right:7mm;white-space:nowrap"><span style="font-size:16px;line-height:1">${val===x?'&#9745;':'&#9744;'}</span> ${escapeHtml(x)}</span>`).join('');
+  const fld = (label, val, style='') => `<div style="display:flex;gap:2mm;${style}"><b style="white-space:nowrap">${label}</b><span style="flex:1;border-bottom:1px dotted #111;padding:0 2mm;min-height:6mm">${val ? escapeHtml(val) : '&nbsp;'}</span></div>`;
+  const grid = (cols, items) => `<div style="display:grid;grid-template-columns:${cols};gap:0 7mm;margin-top:1mm">${items.join('')}</div>`;
+  const num = v => `<td style="text-align:right">${v}</td>`;
+  const blank = '<td></td>';
   const rows = [];
-  rows.push(`<tr style="height:7mm"><td style="text-align:center">${a.purchase_date ? shortThaiDate(a.purchase_date+'T00:00:00') : ''}</td><td style="text-align:center">${escapeHtml(a.doc_ref||'')}</td><td>ได้มา ${escapeHtml(a.name)}</td><td style="text-align:right">${dep.cost ? fmtMoney(dep.cost) : ''}</td><td></td><td></td><td style="text-align:right">${dep.cost ? fmtMoney(dep.cost) : ''}</td><td>${escapeHtml(a.remark||'')}</td></tr>`);
+  rows.push(`<tr>
+    <td style="text-align:center">${a.purchase_date ? shortThaiDate(a.purchase_date+'T00:00:00') : ''}</td>
+    <td style="text-align:center">${escapeHtml(a.doc_ref||'')}</td>
+    <td>${escapeHtml(a.name)}</td>
+    <td style="text-align:center">1</td>
+    ${num(dep.cost ? fmtMoney(dep.cost) : '')}
+    ${num(dep.cost ? fmtMoney(dep.cost) : '')}
+    <td style="text-align:center">${dep.life ? dep.life+' ปี' : ''}</td>
+    <td style="text-align:center">${dep.rate ? dep.rate.toFixed(2)+'%' : ''}</td>
+    ${blank}
+    ${num(dep.cost ? fmtMoney(dep.cost) : '')}
+    <td style="font-size:11px">${escapeHtml(a.remark||'')}</td>
+  </tr>`);
+  rows.push(`<tr>${blank}${blank}<td>${escapeHtml(a.asset_code||'')}</td>${blank}${blank}${blank}${blank}${blank}${blank}${blank}<td style="font-size:11px">${escapeHtml(a.location||'')}</td></tr>`);
   dep.rows.forEach(r=>{
-    rows.push(`<tr style="height:7mm"><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td><td></td><td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}${r.partial?' (ถึงปัจจุบัน)':''}</td><td></td><td style="text-align:right">${fmtMoney(r.amount)}</td><td style="text-align:right">${fmtMoney(r.accumulated)}</td><td style="text-align:right">${fmtMoney(r.net)}</td><td></td></tr>`);
+    rows.push(`<tr><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td>${blank}<td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}${r.partial?' (ถึงปัจจุบัน)':''}</td>${blank}${blank}${blank}${blank}${blank}${num(fmtMoney(r.amount))}${num(fmtMoney(r.net))}<td style="font-size:11px">สะสม ${fmtMoney(r.accumulated)}</td></tr>`);
   });
-  if(a.status === 'จำหน่ายแล้ว') rows.push(`<tr style="height:7mm"><td></td><td></td><td>สถานะ: จำหน่ายแล้ว</td><td></td><td></td><td></td><td></td><td></td></tr>`);
-  while(rows.length < 10) rows.push('<tr style="height:7mm"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>');
-  const sign = label => `<div style="text-align:center;margin-top:8mm"><div>(ลงชื่อ)<span class="a4-dots" style="min-width:45mm"></span>${label}</div><div>(<span style="display:inline-block;min-width:50mm">&nbsp;</span>)</div></div>`;
-  return `<div class="a4-sheet">
-    <div style="text-align:center">
-      ${orgHeaderHtml({nameOnly:true})}
-      <div style="font-size:20px;font-weight:700;margin-top:1mm">ทะเบียนคุมทรัพย์สิน</div>
+  if(a.status === 'จำหน่ายแล้ว') rows.push(`<tr>${blank}${blank}<td>สถานะ: จำหน่ายแล้ว</td>${blank.repeat(8)}</tr>`);
+  while(rows.length < 8) rows.push(`<tr>${blank.repeat(11)}</tr>`);
+  const sign = label => `<div style="text-align:center"><div>(ลงชื่อ)<span class="a4-dots" style="min-width:50mm"></span>${label}</div><div>(<span style="display:inline-block;min-width:50mm">&nbsp;</span>)</div></div>`;
+  const th = (t, w, extra='') => `<th style="${w?'width:'+w+';':''}${extra}">${t}</th>`;
+  return `<div class="a4-sheet land">
+    <div style="text-align:center;font-size:20px;font-weight:700">ทะเบียนคุมทรัพย์สิน</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 7mm;margin-top:2mm">
+      ${fld('ส่วนราชการ', o.name)}${fld('หน่วยงาน', o.name)}
     </div>
-    <div style="margin-top:4mm">
-      ${half('ส่วนราชการ', o.name, 'ประเภท', a.category)}
-      ${half('ชื่อ/รายการ', a.name, 'รหัสครุภัณฑ์', a.asset_code)}
-      ${line('ลักษณะ/คุณสมบัติ', a.description)}
-      ${half('ยี่ห้อ/รุ่นแบบ', a.brand_model, 'หมายเลขเครื่อง (Serial)', a.serial_number)}
-      ${half('สถานที่ตั้ง/หน่วยงานที่ใช้', a.location, 'ผู้รับผิดชอบ', resp?.full_name)}
-      <div style="margin-top:1mm">ประเภทเงิน ${box(ASSET_FUND_TYPES, a.fund_type)}</div>
-      <div style="margin-top:1mm">วิธีการได้มา ${box(ASSET_ACQ_METHODS, a.acquisition_method)}</div>
-      ${line('ผู้ขาย/ผู้รับจ้าง/ผู้บริจาค', a.supplier_name)}
-      ${half('ที่อยู่', a.supplier_address, 'โทรศัพท์', a.supplier_phone)}
-      ${half('อายุการใช้งาน (ปี)', a.useful_life_years ? String(a.useful_life_years) : '', 'อัตราค่าเสื่อมราคา (ร้อยละต่อปี)', dep.rate ? dep.rate.toFixed(2) : '')}
-    </div>
-    <table style="margin-top:4mm;font-size:12px;table-layout:fixed">
-      <thead>
-        <tr><th rowspan="2" style="width:21mm">วัน เดือน ปี</th><th rowspan="2" style="width:17mm">ที่เอกสาร</th><th rowspan="2">รายการ</th><th rowspan="2" style="width:22mm">ราคาทุน (บาท)</th><th colspan="2">ค่าเสื่อมราคา (บาท)</th><th rowspan="2" style="width:22mm">มูลค่าสุทธิ (บาท)</th><th rowspan="2" style="width:18mm">หมายเหตุ</th></tr>
-        <tr><th style="width:21mm">ประจำปี</th><th style="width:22mm">สะสม</th></tr>
-      </thead>
-      <tbody>${rows.join('')}</tbody>
+    ${grid('1.1fr 1fr 1.3fr 1fr', [fld('ประเภท', a.category), fld('รหัส', a.asset_code), fld('ลักษณะ/สมบัติ', a.description), fld('รุ่นแบบ', a.brand_model)])}
+    ${grid('1fr 1fr', [fld('สถานที่ตั้ง/หน่วยที่รับผิดชอบ', [a.location, resp?.full_name].filter(Boolean).join(' / ')), fld('ชื่อผู้ขาย/ผู้รับจ้าง/ผู้รับบริจาค', a.supplier_name)])}
+    ${grid('1.6fr 1fr', [fld('ที่อยู่', a.supplier_address), fld('โทรศัพท์', a.supplier_phone)])}
+    <div style="margin-top:1.5mm"><b style="margin-right:4mm">ประเภทเงิน</b>${box(ASSET_FUND_TYPES, a.fund_type)}</div>
+    <div style="margin-top:.5mm"><b style="margin-right:4mm">วิธีการได้มา</b>${box(ASSET_ACQ_METHODS, a.acquisition_method)}</div>
+    <table style="margin-top:3mm;font-size:12px;table-layout:fixed">
+      <thead><tr>
+        ${th('วัน เดือน ปี','25mm')}${th('ที่เอกสาร','22mm')}${th('รายการ','')}${th('จำนวนหน่วย','16mm')}${th('ราคาต่อหน่วย/ ชุด/กลุ่ม','26mm')}${th('มูลค่ารวม','26mm')}${th('อายุใช้งาน','16mm')}${th('อัตราค่า เสื่อมราคา','19mm')}${th('ค่าเสื่อม ราคา','24mm')}${th('มูลค่าสุทธิ','26mm')}${th('หมายเหตุ','27mm')}
+      </tr></thead>
+      <tbody>${rows.map(r=>r.replace('<tr>','<tr style="height:7mm">')).join('')}</tbody>
     </table>
-    ${dep.ready ? '' : '<div style="font-size:12px;color:#666;margin-top:2mm">* ยังไม่ได้กำหนดอายุการใช้งาน/ราคา/วันที่ได้มา จึงไม่คำนวณค่าเสื่อมราคา (แก้ไขได้ที่ทะเบียนครุภัณฑ์)</div>'}
-    <div style="font-size:11px;color:#555;margin-top:2mm">ค่าเสื่อมราคาคำนวณแบบเส้นตรง มูลค่าซาก 1 บาท ตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8mm;margin-top:6mm">${sign('ผู้จัดทำ (เจ้าหน้าที่พัสดุ)')}${sign('ผู้ตรวจสอบ (หัวหน้าหน่วยพัสดุ)')}</div>
+    ${dep.ready ? '' : '<div style="font-size:11px;color:#666;margin-top:1mm">* ยังไม่ได้กำหนดอายุการใช้งาน/ราคา/วันที่ได้มา จึงไม่คำนวณค่าเสื่อมราคา (แก้ไขได้ที่ทะเบียนครุภัณฑ์)</div>'}
+    <div style="font-size:10.5px;color:#555;margin-top:1mm">ค่าเสื่อมราคาคำนวณแบบเส้นตรง มูลค่าซาก 1 บาท ตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8mm;margin-top:7mm">${sign('ผู้จัดทำ (เจ้าหน้าที่พัสดุ)')}${sign('ผู้ตรวจสอบ (หัวหน้าหน่วยพัสดุ)')}</div>
   </div>`;
 }
 
@@ -1365,10 +1374,10 @@ function openAssetLedger(id){
   openModal(`ทะเบียนคุมทรัพย์สิน ${a.asset_code||''}`, `
     <div class="flex justify-end gap-2 mb-3">
       <button onclick="closeModal()" class="btn-secondary">ปิด</button>
-      <button onclick="printAssetLedger('${a.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF</button>
+      <button onclick="printAssetLedger('${a.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF (A4 แนวนอน)</button>
     </div>
-    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:210mm;margin:0 auto">${assetLedgerHtml(a)}</div></div>
-  `, 'max-w-4xl', true);
+    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:297mm;zoom:.8;margin:0 auto">${assetLedgerHtml(a)}</div></div>
+  `, 'max-w-5xl', true);
   lucide.createIcons();
 }
 
@@ -1376,6 +1385,11 @@ function printAssetLedger(id){
   const a = state.assets.find(x=>x.id===id);
   if(!a) return;
   $('#printArea').innerHTML = assetLedgerHtml(a);
+  // หน้ากระดาษแนวนอนเฉพาะการพิมพ์ทะเบียนคุม
+  const st = document.createElement('style');
+  st.textContent = '@media print { @page { size:A4 landscape; margin:0 } }';
+  document.head.appendChild(st);
+  window.addEventListener('afterprint', () => st.remove(), { once:true });
   printArea();
 }
 
@@ -1415,7 +1429,7 @@ function renderAssets(){
         ${assetCategoriesInUse().map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
       </select>
     </div>
-    <p class="text-xs text-slate-400 mb-4">${canManage?'เพิ่มครุภัณฑ์ใหม่ที่เมนู "รับครุภัณฑ์" · ':''}ยืม-คืนและแจ้งซ่อมได้จากการ์ดแต่ละรายการ</p>
+    <p class="text-xs text-slate-400 mb-4">${canManage?'เพิ่มครุภัณฑ์ใหม่ที่เมนู "รับครุภัณฑ์" · ':''}ยืม-คืนและแจ้งซ่อมได้ที่เมนู "ยืม-คืน" และ "ซ่อมบำรุง"</p>
     <div id="assetGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
   `;
   lucide.createIcons();
@@ -1430,9 +1444,6 @@ function renderAssetGrid(){
   const list = state.assets.filter(a=>(!st || a.status===st) && (!cat || a.category===cat) && (!q || a.name.toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.asset_code||'').toLowerCase().includes(q)));
   $('#assetGrid').innerHTML = list.map(a=>{
     const loan = activeLoanOf(a.id);
-    const canLoan = isAssetLendable(a);
-    const canRepair = a.status !== 'จำหน่ายแล้ว' && !openRepairOf(a.id);
-    const btn = (ok, onclick, icon, label) => `<button ${ok?`onclick="${onclick}"`:'disabled'} class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs ${ok?'':'opacity-40 cursor-not-allowed'}"><i data-lucide="${icon}" class="w-3.5 h-3.5"></i>${label}</button>`;
     return `<div class="card">
       <div class="w-full h-28 rounded-2xl overflow-hidden bg-slate-100 mb-3 flex items-center justify-center">${a.image_url?`<img src="${escapeHtml(a.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="monitor" class="w-8 h-8 text-slate-300"></i>`}</div>
       <p class="text-xs text-slate-400">${escapeHtml(a.asset_code||'-')}</p>
@@ -1440,9 +1451,7 @@ function renderAssetGrid(){
       <p class="text-xs text-slate-400 mb-2 truncate" title="${escapeHtml(a.category||'')}">${escapeHtml(a.category||'ไม่ระบุประเภท')} · ${escapeHtml(a.location||'-')}</p>
       <div class="mb-3 flex gap-1 flex-wrap">${statusBadge(a.status)}${loan?`<span class="badge bg-violet-100 text-violet-600">ถูกยืมอยู่</span>`:''}</div>
       <div class="flex gap-2 flex-wrap">
-        ${btn(canLoan, `openLoanRequestModal('${a.id}')`, 'hand', 'ยืม')}
-        ${btn(canRepair, `openRepairReportModal('${a.id}')`, 'wrench', 'แจ้งซ่อม')}
-        <button onclick="openAssetLedger('${a.id}')" title="ทะเบียนคุมทรัพย์สิน" class="w-9 h-9 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center shrink-0"><i data-lucide="file-text" class="w-4 h-4"></i></button>
+        <button onclick="openAssetLedger('${a.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="file-text" class="w-3.5 h-3.5"></i>ทะเบียนคุม</button>
         ${canManage?`<button onclick="openAssetModal('${a.id}')" class="w-9 h-9 rounded-xl bg-sky-50 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="pencil" class="w-4 h-4"></i></button>
         <button onclick="deleteAsset('${a.id}')" class="w-9 h-9 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
       </div>
