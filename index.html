@@ -573,32 +573,81 @@ function navBtnHtml(key, extraClass=''){
     <i data-lucide="${item.icon}" class="w-5 h-5"></i>${item.label}</button>`;
 }
 
+const MENU_OPEN_KEY = 'smartasset_menu_open';
+
+function menuOpenState(){
+  try{ return JSON.parse(localStorage.getItem(MENU_OPEN_KEY) || '{}'); }catch(e){ return {}; }
+}
+function menuNodeId(n){ return n.group ? 'g:'+n.group : 'k:'+n.key; }
+function isMenuOpen(id){
+  const st = menuOpenState();
+  return id in st ? !!st[id] : id === 'g:วัสดุ';
+}
+
+function applyMenuOpen(id, open){
+  const wrap = document.querySelector('[data-menu-children="'+id+'"]');
+  if(!wrap) return;
+  wrap.style.gridTemplateRows = open ? '1fr' : '0fr';
+  const inner = wrap.firstElementChild;
+  if(inner){ open ? inner.removeAttribute('inert') : inner.setAttribute('inert',''); }
+  const chev = document.querySelector('[data-menu-chevron="'+id+'"]');
+  if(chev) chev.classList.toggle('-rotate-90', !open);
+  const toggle = document.querySelector('[data-menu-toggle="'+id+'"]');
+  if(toggle) toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function toggleMenuGroup(id){
+  const open = !isMenuOpen(id);
+  const st = menuOpenState();
+  st[id] = open;
+  try{ localStorage.setItem(MENU_OPEN_KEY, JSON.stringify(st)); }catch(e){}
+  applyMenuOpen(id, open);
+}
+
+function menuAncestorIds(nodes, key, trail=[]){
+  for(const n of (nodes||[])){
+    if(n.key === key) return trail;
+    if(n.children){
+      const r = menuAncestorIds(n.children, key, [...trail, menuNodeId(n)]);
+      if(r) return r;
+    }
+  }
+  return null;
+}
+
+function openMenuAncestors(view){
+  (menuAncestorIds(ROLE_MENU[state.user.role], view) || []).forEach(id=>applyMenuOpen(id, true));
+}
+
+function sidebarNodeHtml(n, depth){
+  const pl = depth === 0 ? 'px-4' : depth === 1 ? 'pl-11 pr-3' : 'pl-14 pr-3';
+  const chevron = id => `<span data-menu-chevron="${id}" class="ml-auto shrink-0 transition-transform duration-200 ${isMenuOpen(id)?'':'-rotate-90'}"><i data-lucide="chevron-down" class="w-4 h-4"></i></span>`;
+  const childrenWrap = (id, kids) => `<div data-menu-children="${id}" class="grid transition-[grid-template-rows] duration-200 ease-out" style="grid-template-rows:${isMenuOpen(id)?'1fr':'0fr'}"><div class="overflow-hidden min-h-0" ${isMenuOpen(id)?'':'inert'}>${kids.map(c=>sidebarNodeHtml(c, depth+1)).join('')}</div></div>`;
+
+  if(n.group){
+    const id = menuNodeId(n);
+    const cls = depth === 0 ? 'py-2.5 text-sm font-medium text-slate-500' : 'py-2 text-[13px] font-semibold text-slate-400';
+    return `<button type="button" data-menu-toggle="${id}" aria-expanded="${isMenuOpen(id)}" onclick="toggleMenuGroup('${id}')" class="flex items-center gap-3 w-full ${pl} ${cls} rounded-2xl hover:bg-slate-50 transition whitespace-nowrap">
+      <i data-lucide="${n.icon}" class="${depth===0?'w-5 h-5':'w-4 h-4'}"></i> ${n.group}${chevron(id)}
+    </button>${childrenWrap(id, n.children||[])}`;
+  }
+  const item = MENU_ITEMS[n.key];
+  const size = depth === 0 ? 'py-2.5 text-sm font-medium text-slate-500' : 'py-2 text-[13px] font-medium text-slate-400';
+  const icon = depth === 0 ? 'w-5 h-5' : 'w-4 h-4';
+  const label = depth === 0 ? item.label : (item.short || item.label);
+  const btn = `<button data-view="${n.key}" onclick="navigate('${n.key}')" class="nav-btn flex items-center gap-3 flex-1 min-w-0 ${pl} ${size} rounded-2xl hover:bg-sky-50 hover:text-sky-500 transition whitespace-nowrap">
+      <i data-lucide="${item.icon}" class="${icon} shrink-0"></i> ${label}
+    </button>`;
+  if(n.children && n.children.length){
+    const id = menuNodeId(n);
+    return `<div class="flex items-center">${btn}<button type="button" data-menu-toggle="${id}" aria-expanded="${isMenuOpen(id)}" aria-label="ย่อ/ขยาย" onclick="toggleMenuGroup('${id}')" class="w-8 h-8 rounded-xl text-slate-400 hover:bg-slate-50 flex items-center justify-center shrink-0">${chevron(id).replace('ml-auto ','')}</button></div>${childrenWrap(id, n.children)}`;
+  }
+  return depth === 0 ? `<div class="flex">${btn}</div>` : btn;
+}
+
 function buildSidebar(){
   const nodes = ROLE_MENU[state.user.role] || [];
-  $('#sidebarNav').innerHTML = nodes.map(node=>{
-    let headHtml;
-    if(node.key){
-      const item = MENU_ITEMS[node.key];
-      headHtml = `<button data-view="${node.key}" onclick="navigate('${node.key}')" class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-500 hover:bg-sky-50 hover:text-sky-500 transition">
-        <i data-lucide="${item.icon}" class="w-5 h-5"></i> ${item.label}
-      </button>`;
-    } else {
-      headHtml = `<div class="flex items-center gap-3 w-full px-4 pt-3 pb-1 text-[13px] font-semibold text-slate-400">
-        <i data-lucide="${node.icon}" class="w-4 h-4"></i> ${node.group}
-      </div>`;
-    }
-    const renderChildren = (list, depth) => list.map(c=>{
-      if(c.group){
-        return `<div class="flex items-center gap-2 w-full ${depth?'pl-14':'pl-11'} pr-4 pt-2 pb-0.5 text-[12px] font-semibold text-slate-400"><i data-lucide="${c.icon}" class="w-3.5 h-3.5"></i>${c.group}</div>` + renderChildren(c.children||[], depth+1);
-      }
-      const citem = MENU_ITEMS[c.key];
-      return `<button data-view="${c.key}" onclick="navigate('${c.key}')" class="nav-btn flex items-center gap-2.5 w-full whitespace-nowrap ${depth?'pl-14':'pl-11'} pr-3 py-2 rounded-2xl text-[13px] font-medium text-slate-400 hover:bg-sky-50 hover:text-sky-500 transition">
-        <i data-lucide="${citem.icon}" class="w-4 h-4"></i> ${citem.short||citem.label}
-      </button>`;
-    }).join('');
-    const childrenBtns = renderChildren(node.children||[], 0);
-    return headHtml + childrenBtns;
-  }).join('');
+  $('#sidebarNav').innerHTML = nodes.map(n=>sidebarNodeHtml(n, 0)).join('');
   $('#sidebarUserName').textContent = state.user.full_name;
   $('#sidebarUserRole').textContent = roleLabel(state.user.role);
   $('#sidebarAvatar').innerHTML = state.user.avatar_url
@@ -669,6 +718,7 @@ function navigate(view){
   const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
+  openMenuAncestors(view);
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
