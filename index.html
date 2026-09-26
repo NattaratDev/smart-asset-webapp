@@ -208,6 +208,7 @@ const MENU_ITEMS = {
   matStock:    { label: 'คลังวัสดุ', icon: 'box' },
   matReceive:  { label: 'รับเข้าวัสดุ', icon: 'package-plus' },
   matIssue:    { label: 'เบิกวัสดุ', icon: 'package-minus' },
+  matTrack:    { label: 'ติดตามสถานะการเบิก', icon: 'list-checks' },
   matCard:     { label: 'คงเหลือ/Stock Card', icon: 'scroll-text' },
   assets:      { label: 'ครุภัณฑ์', icon: 'monitor' },
   requests:    { label: 'คำร้อง', icon: 'clipboard-list' },
@@ -222,7 +223,7 @@ const MENU_ITEMS = {
 const ROLE_MENU = {
   admin: [
     { key:'dashboard' },
-    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matCard'}] },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{key:'matCard'}] },
     { key:'assets', children:[{key:'requests'}] },
     { key:'employees' },
     { key:'profile' },
@@ -230,13 +231,13 @@ const ROLE_MENU = {
   ],
   staff: [
     { key:'dashboard' },
-    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matCard'}] },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{key:'matCard'}] },
     { key:'assets', children:[{key:'requests'}] },
     { key:'profile' },
   ],
   employee: [
     { key:'dashboard' },
-    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matIssue'},{key:'matCard'}] },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matIssue'},{key:'matTrack'},{key:'matCard'}] },
     { key:'assets', children:[{key:'requests'}] },
     { key:'profile' },
   ],
@@ -636,7 +637,7 @@ function navigate(view){
   closeAdminPanel();
   closeUserMenu();
   $('#pageTitle').textContent = item ? item.label : '';
-  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matCard: renderMatCard, assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -1492,28 +1493,17 @@ let issueCart = [];
 
 function renderMatIssue(){
   const isPriv = state.user.role !== 'employee';
-  const list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
-  const pendingCount = list.filter(r=>r.status==='รออนุมัติ').length;
-  const approvedCount = list.filter(r=>r.status==='อนุมัติ').length;
-  const rejectedCount = list.filter(r=>r.status==='ไม่อนุมัติ').length;
   $('#mainContent').innerHTML = `
-    <div class="grid grid-cols-3 gap-3 mb-5">
-      <div class="card flex items-center gap-3"><div class="w-10 h-10 rounded-2xl bg-amber-100 text-amber-500 flex items-center justify-center shrink-0"><i data-lucide="clock" class="w-5 h-5"></i></div><div class="min-w-0"><p class="text-lg font-bold text-slate-700">${pendingCount}</p><p class="text-xs text-slate-400 truncate">รออนุมัติ</p></div></div>
-      <div class="card flex items-center gap-3"><div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-500 flex items-center justify-center shrink-0"><i data-lucide="check-circle" class="w-5 h-5"></i></div><div class="min-w-0"><p class="text-lg font-bold text-slate-700">${approvedCount}</p><p class="text-xs text-slate-400 truncate">อนุมัติแล้ว</p></div></div>
-      <div class="card flex items-center gap-3"><div class="w-10 h-10 rounded-2xl bg-rose-100 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x-circle" class="w-5 h-5"></i></div><div class="min-w-0"><p class="text-lg font-bold text-slate-700">${rejectedCount}</p><p class="text-xs text-slate-400 truncate">ไม่อนุมัติ</p></div></div>
-    </div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
       <div class="relative w-full sm:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
-        <input id="issueSearch" oninput="renderIssueTable()" placeholder="ค้นหาใบเบิกวัสดุ..." class="input-field pl-9">
+        <input id="issueSearch" oninput="renderIssueTable()" placeholder="ค้นหาใบเบิกที่รอดำเนินการ..." class="input-field pl-9">
       </div>
-      <div class="flex gap-2">
-        ${state.user.role==='admin'?`<button onclick="exportIssueRequestsCSV()" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
-        <button onclick="openIssueCreateModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>
-      </div>
+      <button onclick="openIssueCreateModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>
     </div>
+    <p class="text-xs text-slate-400 mb-4">${isPriv?'แสดงใบเบิกที่รออนุมัติ':'แสดงใบเบิกของคุณที่รออนุมัติ (ยกเลิกได้)'} · ดูสถานะทั้งหมดได้ที่เมนู "ติดตามสถานะการเบิก"</p>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
-      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
+      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">เหตุผล</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
     </tr></thead><tbody id="issueTableBody"></tbody></table></div>
   `;
   lucide.createIcons();
@@ -1524,25 +1514,94 @@ function renderIssueTable(){
   const isPriv = state.user.role !== 'employee';
   const q = ($('#issueSearch')?.value||'').toLowerCase();
   let list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
+  list = list.filter(r=>r.status==='รออนุมัติ');
   list = list.filter(r=>!q || (r.issue_code||'').toLowerCase().includes(q));
   const colspan = isPriv ? 6 : 5;
   $('#issueTableBody').innerHTML = list.map(r=>{
     const items = r.items||[];
     const summary = items.map(it=>`${it.material?.name||'-'} x${it.quantity}`).join(', ');
-    const canDelete = r.status==='รออนุมัติ' && (isPriv || r.requester_id===state.user.id);
+    return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.issue_code)}</td>
+      ${isPriv?`<td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>`:''}
+      <td class="py-2 pr-3 max-w-xs truncate" title="${escapeHtml(summary)}">${items.length} รายการ: ${escapeHtml(summary)}</td>
+      <td class="py-2 pr-3 max-w-[10rem] truncate text-slate-500" title="${escapeHtml(r.reason||'')}">${escapeHtml(r.reason||'-')}</td>
+      <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
+      <td class="py-2"><div class="flex gap-2">
+        ${isPriv ? `
+          <button onclick="approveIssueRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
+          <button onclick="approveIssueRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
+        <button onclick="deleteIssueRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ยกเลิก/ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+      </div></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่มีใบเบิกที่รอดำเนินการ</td></tr>`;
+  lucide.createIcons();
+}
+
+// ---------------------------------------------------------------------------
+// ติดตามสถานะการเบิก - ทุกสิทธิ์ (อ่านอย่างเดียว)
+// ---------------------------------------------------------------------------
+let trackStatusFilter = '';
+
+function renderMatTrack(){
+  const isPriv = state.user.role !== 'employee';
+  trackStatusFilter = '';
+  const list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
+  const cards = [
+    {key:'', label:'ทั้งหมด', icon:'layers', color:'sky', count:list.length},
+    {key:'รออนุมัติ', label:'รออนุมัติ', icon:'clock', color:'amber', count:list.filter(r=>r.status==='รออนุมัติ').length},
+    {key:'อนุมัติ', label:'อนุมัติแล้ว', icon:'check-circle', color:'emerald', count:list.filter(r=>r.status==='อนุมัติ').length},
+    {key:'ไม่อนุมัติ', label:'ไม่อนุมัติ', icon:'x-circle', color:'rose', count:list.filter(r=>r.status==='ไม่อนุมัติ').length},
+  ];
+  $('#mainContent').innerHTML = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      ${cards.map(c=>`
+        <button type="button" data-track="${escapeHtml(c.key)}" onclick="setTrackFilter('${c.key}')" class="track-card card flex items-center gap-3 text-left transition ring-2 ring-transparent">
+          <div class="w-10 h-10 rounded-2xl bg-${c.color}-100 text-${c.color}-500 flex items-center justify-center shrink-0"><i data-lucide="${c.icon}" class="w-5 h-5"></i></div>
+          <div class="min-w-0"><p class="text-lg font-bold text-slate-700">${c.count}</p><p class="text-xs text-slate-400 truncate">${c.label}</p></div>
+        </button>`).join('')}
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="trackSearch" oninput="renderTrackTable()" placeholder="ค้นหาเลขที่ใบเบิก..." class="input-field pl-9">
+      </div>
+      ${state.user.role==='admin'?`<button onclick="exportIssueRequestsCSV()" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+    </div>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">ติดตาม</th>
+    </tr></thead><tbody id="trackTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderTrackTable();
+}
+
+function setTrackFilter(status){
+  trackStatusFilter = status;
+  renderTrackTable();
+}
+
+function renderTrackTable(){
+  const isPriv = state.user.role !== 'employee';
+  const q = ($('#trackSearch')?.value||'').toLowerCase();
+  $all('.track-card').forEach(b=>{
+    const on = b.dataset.track === trackStatusFilter;
+    b.classList.toggle('ring-sky-300', on);
+    b.classList.toggle('ring-transparent', !on);
+  });
+  let list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
+  if(trackStatusFilter) list = list.filter(r=>r.status===trackStatusFilter);
+  list = list.filter(r=>!q || (r.issue_code||'').toLowerCase().includes(q));
+  const colspan = isPriv ? 6 : 5;
+  $('#trackTableBody').innerHTML = list.map(r=>{
+    const items = r.items||[];
+    const summary = items.map(it=>`${it.material?.name||'-'} x${it.quantity}`).join(', ');
     return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
       <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.issue_code)}</td>
       ${isPriv?`<td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>`:''}
       <td class="py-2 pr-3 max-w-xs truncate" title="${escapeHtml(summary)}">${items.length} รายการ: ${escapeHtml(summary)}</td>
       <td class="py-2 pr-3">${statusBadge(r.status)}</td>
       <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
-      <td class="py-2"><div class="flex gap-2">
-        <button onclick="openIssueDetailModal('${r.id}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center" title="ติดตามสถานะ"><i data-lucide="eye" class="w-4 h-4"></i></button>
-        ${isPriv && r.status==='รออนุมัติ' ? `
-          <button onclick="approveIssueRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
-          <button onclick="approveIssueRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
-        ${canDelete?`<button onclick="deleteIssueRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ยกเลิก/ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
-      </div></td>
+      <td class="py-2"><button onclick="openIssueDetailModal('${r.id}')" class="btn-secondary !py-1.5 !px-3 text-xs gap-1"><i data-lucide="eye" class="w-3.5 h-3.5"></i>ดูสถานะ</button></td>
     </tr>`;
   }).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่พบใบเบิกวัสดุ</td></tr>`;
   lucide.createIcons();
