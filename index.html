@@ -201,7 +201,7 @@ const dbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 Chart.defaults.font.family = 'Kanit';
 
 const SESSION_KEY = 'smartasset_session';
-const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], stockTx: [], charts: {} };
+const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], charts: {} };
 
 const MENU_ITEMS = {
   dashboard:   { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
@@ -279,6 +279,19 @@ function generateNextItemCode(){
   state.materials.forEach(m=>{
     if(m.item_code && m.item_code.startsWith(prefix)){
       const num = parseInt(m.item_code.slice(prefix.length), 10);
+      if(!isNaN(num) && num > maxSeq) maxSeq = num;
+    }
+  });
+  return `${prefix}${String(maxSeq + 1).padStart(4,'0')}`;
+}
+
+function generateNextIssueCode(){
+  const fy = getCurrentFiscalYearBE();
+  const prefix = `WD-${fy}-`;
+  let maxSeq = 0;
+  state.issueRequests.forEach(r=>{
+    if(r.issue_code && r.issue_code.startsWith(prefix)){
+      const num = parseInt(r.issue_code.slice(prefix.length), 10);
       if(!isNaN(num) && num > maxSeq) maxSeq = num;
     }
   });
@@ -511,15 +524,16 @@ async function loadLandingStats(){
 async function fetchAll(){
   showLoader();
   try{
-    const [{data:users,error:e1},{data:materials,error:e2},{data:assets,error:e3},{data:requests,error:e4},{data:stockTx,error:e5}] = await Promise.all([
+    const [{data:users,error:e1},{data:materials,error:e2},{data:assets,error:e3},{data:requests,error:e4},{data:stockTx,error:e5},{data:issueRequests,error:e6}] = await Promise.all([
       dbClient.from('users').select('*').order('created_at',{ascending:false}),
       dbClient.from('materials').select('*').order('created_at',{ascending:false}),
       dbClient.from('fixed_assets').select('*').order('created_at',{ascending:false}),
       dbClient.from('requests').select('*').order('created_at',{ascending:false}),
       dbClient.from('material_stock_transactions').select('*').order('created_at',{ascending:false}),
+      dbClient.from('material_issue_requests').select('*, items:material_issue_items(id, material_id, quantity, material:materials(name,unit,item_code))').order('created_at',{ascending:false}),
     ]);
-    if(e1||e2||e3||e4||e5) throw (e1||e2||e3||e4||e5);
-    state.users = users||[]; state.materials = materials||[]; state.assets = assets||[]; state.requests = requests||[]; state.stockTx = stockTx||[];
+    if(e1||e2||e3||e4||e5||e6) throw (e1||e2||e3||e4||e5||e6);
+    state.users = users||[]; state.materials = materials||[]; state.assets = assets||[]; state.requests = requests||[]; state.stockTx = stockTx||[]; state.issueRequests = issueRequests||[];
   }catch(err){ showToast('โหลดข้อมูลล้มเหลว: '+err.message,'error'); }
   finally{ hideLoader(); }
 }
@@ -656,10 +670,17 @@ function closeConfirm(){ $('#confirmModal').classList.add('hidden'); $('#confirm
 // ---------------------------------------------------------------------------
 // Dashboard
 // ---------------------------------------------------------------------------
+function getUnifiedActivity(){
+  const a = state.requests.map(r=>({ id:r.id, code:r.request_code, type:r.request_type, requester_id:r.requester_id, status:r.status, created_at:r.created_at }));
+  const b = state.issueRequests.map(r=>({ id:r.id, code:r.issue_code, type:'เบิกวัสดุ', requester_id:r.requester_id, status:r.status, created_at:r.created_at }));
+  return [...a, ...b].sort((x,y)=> new Date(y.created_at) - new Date(x.created_at));
+}
+
 function renderDashboard(){
   const isPriv = state.user.role !== 'employee';
-  const myRequests = state.requests.filter(r=>r.requester_id===state.user.id);
-  const pending = state.requests.filter(r=>r.status==='รออนุมัติ');
+  const allActivity = getUnifiedActivity();
+  const myActivity = allActivity.filter(r=>r.requester_id===state.user.id);
+  const pending = allActivity.filter(r=>r.status==='รออนุมัติ');
   const lowStock = state.materials.filter(m=>Number(m.quantity)<=Number(m.min_quantity));
   const statCards = isPriv ? [
     {label:'พนักงานทั้งหมด', value:state.users.length, icon:'users', color:'sky'},
@@ -667,12 +688,12 @@ function renderDashboard(){
     {label:'วัสดุใกล้หมด', value:lowStock.length, icon:'alert-triangle', color:'amber'},
     {label:'คำร้องรออนุมัติ', value:pending.length, icon:'clock', color:'violet'},
   ] : [
-    {label:'คำร้องของฉัน', value:myRequests.length, icon:'clipboard-list', color:'sky'},
-    {label:'รออนุมัติ', value:myRequests.filter(r=>r.status==='รออนุมัติ').length, icon:'clock', color:'amber'},
-    {label:'อนุมัติแล้ว', value:myRequests.filter(r=>r.status==='อนุมัติ').length, icon:'check-circle', color:'emerald'},
-    {label:'ไม่อนุมัติ', value:myRequests.filter(r=>r.status==='ไม่อนุมัติ').length, icon:'x-circle', color:'rose'},
+    {label:'คำร้องของฉัน', value:myActivity.length, icon:'clipboard-list', color:'sky'},
+    {label:'รออนุมัติ', value:myActivity.filter(r=>r.status==='รออนุมัติ').length, icon:'clock', color:'amber'},
+    {label:'อนุมัติแล้ว', value:myActivity.filter(r=>r.status==='อนุมัติ').length, icon:'check-circle', color:'emerald'},
+    {label:'ไม่อนุมัติ', value:myActivity.filter(r=>r.status==='ไม่อนุมัติ').length, icon:'x-circle', color:'rose'},
   ];
-  const listForTable = isPriv ? state.requests : myRequests;
+  const listForTable = isPriv ? allActivity : myActivity;
 
   $('#mainContent').innerHTML = `
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -696,9 +717,9 @@ function renderDashboard(){
           <tbody>
             ${listForTable.slice(0,5).map(r=>`
               <tr class="border-b border-slate-50">
-                <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.request_code||'-')}</td>
+                <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.code||'-')}</td>
                 <td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>
-                <td class="py-2 pr-3">${escapeHtml(r.request_type)}</td>
+                <td class="py-2 pr-3">${escapeHtml(r.type)}</td>
                 <td class="py-2 pr-3">${statusBadge(r.status)}</td>
                 <td class="py-2 text-slate-400">${formatDate(r.created_at)}</td>
               </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีคำร้อง</td></tr>`}
@@ -1087,8 +1108,8 @@ function renderAssetGrid(){
       <p class="text-xs text-slate-400 mb-2">${escapeHtml(a.category||'ไม่ระบุหมวดหมู่')} · ${escapeHtml(a.location||'-')}</p>
       <div class="mb-3">${statusBadge(a.status)}</div>
       <div class="flex gap-2 flex-wrap">
-        <button onclick="openRequestModal('ยืมครุภัณฑ์',null,'${a.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="hand" class="w-3.5 h-3.5"></i>ยืม</button>
-        <button onclick="openRequestModal('แจ้งซ่อม',null,'${a.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="wrench" class="w-3.5 h-3.5"></i>แจ้งซ่อม</button>
+        <button onclick="openRequestModal('ยืมครุภัณฑ์','${a.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="hand" class="w-3.5 h-3.5"></i>ยืม</button>
+        <button onclick="openRequestModal('แจ้งซ่อม','${a.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="wrench" class="w-3.5 h-3.5"></i>แจ้งซ่อม</button>
         ${canManage?`<button onclick="openAssetModal('${a.id}')" class="w-9 h-9 rounded-xl bg-sky-50 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="pencil" class="w-4 h-4"></i></button>
         <button onclick="deleteAsset('${a.id}')" class="w-9 h-9 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
       </div>
@@ -1185,13 +1206,13 @@ function deleteAsset(id){
 // ---------------------------------------------------------------------------
 // Requests
 // ---------------------------------------------------------------------------
-function openRequestModal(presetType, materialId, assetId){
+function openRequestModal(presetType, assetId){
   openModal('สร้างคำร้องใหม่', `
     <form id="requestForm" class="space-y-3">
       <div>
         <label class="text-sm text-slate-500">ประเภทคำร้อง</label>
         <select id="f_request_type" class="input-field" onchange="toggleRequestItemField()">
-          ${['เบิกวัสดุ','ยืมครุภัณฑ์','แจ้งซ่อม','อื่นๆ'].map(t=>`<option ${presetType===t?'selected':''}>${t}</option>`).join('')}
+          ${['ยืมครุภัณฑ์','แจ้งซ่อม','อื่นๆ'].map(t=>`<option ${presetType===t?'selected':''}>${t}</option>`).join('')}
         </select>
       </div>
       <div id="requestItemField"></div>
@@ -1200,16 +1221,14 @@ function openRequestModal(presetType, materialId, assetId){
       <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">ส่งคำร้อง</button></div>
     </form>
   `);
-  toggleRequestItemField(materialId, assetId);
+  toggleRequestItemField(assetId);
   $('#requestForm').onsubmit = submitRequestForm;
 }
 
-function toggleRequestItemField(materialId, assetId){
+function toggleRequestItemField(assetId){
   const type = $('#f_request_type').value;
   const box = $('#requestItemField');
-  if(type === 'เบิกวัสดุ'){
-    box.innerHTML = `<label class="text-sm text-slate-500">รายการวัสดุ</label><select id="f_material_id" class="input-field">${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>`;
-  } else if(type === 'ยืมครุภัณฑ์' || type === 'แจ้งซ่อม'){
+  if(type === 'ยืมครุภัณฑ์' || type === 'แจ้งซ่อม'){
     box.innerHTML = `<label class="text-sm text-slate-500">รายการครุภัณฑ์</label><select id="f_asset_id" class="input-field">${state.assets.map(a=>`<option value="${a.id}" ${assetId===a.id?'selected':''}>${escapeHtml(a.name)} (${escapeHtml(a.asset_code||'-')})</option>`).join('')}</select>`;
   } else {
     box.innerHTML = '';
@@ -1225,7 +1244,6 @@ async function submitRequestForm(e){
       request_code: 'REQ-' + Date.now().toString().slice(-8),
       requester_id: state.user.id,
       request_type: type,
-      material_id: type==='เบิกวัสดุ' ? ($('#f_material_id')?.value || null) : null,
       fixed_asset_id: (type==='ยืมครุภัณฑ์'||type==='แจ้งซ่อม') ? ($('#f_asset_id')?.value || null) : null,
       quantity: Number($('#f_quantity').value) || 1,
       reason: $('#f_reason').value.trim(),
@@ -1251,7 +1269,7 @@ function renderRequests(){
         <input id="reqSearch" oninput="renderRequestTable()" placeholder="ค้นหาคำร้อง..." class="input-field pl-9">
       </div>
       <div class="flex gap-2">
-        ${state.user.role==='admin'?`<button onclick="exportCSV(state.requests.filter(r=>r.request_type!=='เบิกวัสดุ'),'requests.csv',['request_code','request_type','quantity','status','created_at'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        ${state.user.role==='admin'?`<button onclick="exportCSV(state.requests,'requests.csv',['request_code','request_type','quantity','status','created_at'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
         <button onclick="openRequestModal('ยืมครุภัณฑ์')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างคำร้อง</button>
       </div>
     </div>
@@ -1267,7 +1285,6 @@ function renderRequestTable(){
   const isPriv = state.user.role !== 'employee';
   const q = ($('#reqSearch')?.value||'').toLowerCase();
   let list = isPriv ? state.requests : state.requests.filter(r=>r.requester_id===state.user.id);
-  list = list.filter(r=>r.request_type !== 'เบิกวัสดุ');
   list = list.filter(r=>!q || (r.request_code||'').toLowerCase().includes(q) || r.request_type.toLowerCase().includes(q));
   $('#reqTableBody').innerHTML = list.map(r=>`
     <tr class="border-b border-slate-50 hover:bg-slate-50/60">
@@ -1289,11 +1306,6 @@ function renderRequestTable(){
   lucide.createIcons();
 }
 
-function refreshRequestView(){
-  if(state.currentView==='matIssue') renderMatIssueTable();
-  else if(state.currentView==='requests') renderRequestTable();
-}
-
 function approveRequest(id, approve){
   confirmAction(approve?'ยืนยันการอนุมัติคำร้องนี้?':'ยืนยันไม่อนุมัติคำร้องนี้?', async ()=>{
     showLoader();
@@ -1303,19 +1315,7 @@ function approveRequest(id, approve){
       if(error) throw error;
       const idx = state.requests.findIndex(r=>r.id===id);
       if(idx>-1) state.requests[idx] = data;
-      if(approve && data.request_type==='เบิกวัสดุ' && data.material_id){
-        const mat = state.materials.find(m=>m.id===data.material_id);
-        if(mat){
-          const newQty = Math.max(0, Number(mat.quantity) - Number(data.quantity));
-          const { data: updatedMat } = await dbClient.from('materials').update({quantity:newQty}).eq('id', mat.id).select().single();
-          if(updatedMat) Object.assign(mat, updatedMat);
-          const { data: tx } = await dbClient.from('material_stock_transactions').insert({
-            material_id: mat.id, type:'เบิกออก', quantity: Number(data.quantity), note:'อนุมัติคำร้อง '+(data.request_code||''), reference_request_id: data.id, performed_by: state.user.id
-          }).select().single();
-          if(tx) state.stockTx.unshift(tx);
-        }
-      }
-      refreshRequestView();
+      renderRequestTable();
       showToast(approve?'อนุมัติคำร้องสำเร็จ':'ไม่อนุมัติคำร้อง','success');
     }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
@@ -1329,7 +1329,7 @@ function deleteRequest(id){
       const { error } = await dbClient.from('requests').delete().eq('id', id);
       if(error) throw error;
       state.requests = state.requests.filter(r=>r.id!==id);
-      refreshRequestView(); showToast('ลบสำเร็จ','success');
+      renderRequestTable(); showToast('ลบสำเร็จ','success');
     }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
   });
@@ -1486,91 +1486,233 @@ function renderReceiveHistory(){
 }
 
 // ---------------------------------------------------------------------------
-// เบิกวัสดุ (Material Issue Request) - ทุกสิทธิ์
+// เบิกวัสดุ (Material Issue) - ทุกสิทธิ์ - เบิกได้หลายรายการต่อ 1 ใบเบิก
 // ---------------------------------------------------------------------------
+let issueCart = [];
+
 function renderMatIssue(){
   const isPriv = state.user.role !== 'employee';
+  const list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
+  const pendingCount = list.filter(r=>r.status==='รออนุมัติ').length;
+  const approvedCount = list.filter(r=>r.status==='อนุมัติ').length;
+  const rejectedCount = list.filter(r=>r.status==='ไม่อนุมัติ').length;
   $('#mainContent').innerHTML = `
+    <div class="grid grid-cols-3 gap-3 mb-5">
+      <div class="card flex items-center gap-3"><div class="w-10 h-10 rounded-2xl bg-amber-100 text-amber-500 flex items-center justify-center shrink-0"><i data-lucide="clock" class="w-5 h-5"></i></div><div class="min-w-0"><p class="text-lg font-bold text-slate-700">${pendingCount}</p><p class="text-xs text-slate-400 truncate">รออนุมัติ</p></div></div>
+      <div class="card flex items-center gap-3"><div class="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-500 flex items-center justify-center shrink-0"><i data-lucide="check-circle" class="w-5 h-5"></i></div><div class="min-w-0"><p class="text-lg font-bold text-slate-700">${approvedCount}</p><p class="text-xs text-slate-400 truncate">อนุมัติแล้ว</p></div></div>
+      <div class="card flex items-center gap-3"><div class="w-10 h-10 rounded-2xl bg-rose-100 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x-circle" class="w-5 h-5"></i></div><div class="min-w-0"><p class="text-lg font-bold text-slate-700">${rejectedCount}</p><p class="text-xs text-slate-400 truncate">ไม่อนุมัติ</p></div></div>
+    </div>
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="relative w-full sm:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
-        <input id="issueSearch" oninput="renderMatIssueTable()" placeholder="ค้นหาคำร้องเบิกวัสดุ..." class="input-field pl-9">
+        <input id="issueSearch" oninput="renderIssueTable()" placeholder="ค้นหาใบเบิกวัสดุ..." class="input-field pl-9">
       </div>
       <div class="flex gap-2">
-        ${state.user.role==='admin'?`<button onclick="exportCSV(state.requests.filter(r=>r.request_type==='เบิกวัสดุ'),'material_requests.csv',['request_code','quantity','status','created_at'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
-        <button onclick="openMaterialIssueModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เบิกวัสดุ</button>
+        ${state.user.role==='admin'?`<button onclick="exportIssueRequestsCSV()" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        <button onclick="openIssueCreateModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>
       </div>
     </div>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
-      <th class="py-2 pr-3">รหัส</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">วัสดุ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
+      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
     </tr></thead><tbody id="issueTableBody"></tbody></table></div>
   `;
   lucide.createIcons();
-  renderMatIssueTable();
+  renderIssueTable();
 }
 
-function renderMatIssueTable(){
+function renderIssueTable(){
   const isPriv = state.user.role !== 'employee';
   const q = ($('#issueSearch')?.value||'').toLowerCase();
-  let list = state.requests.filter(r=>r.request_type==='เบิกวัสดุ');
-  if(!isPriv) list = list.filter(r=>r.requester_id===state.user.id);
-  list = list.filter(r=>!q || (r.request_code||'').toLowerCase().includes(q));
-  const colspan = isPriv ? 7 : 6;
-  $('#issueTableBody').innerHTML = list.map(r=>`
-    <tr class="border-b border-slate-50 hover:bg-slate-50/60">
-      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.request_code)}</td>
+  let list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
+  list = list.filter(r=>!q || (r.issue_code||'').toLowerCase().includes(q));
+  const colspan = isPriv ? 6 : 5;
+  $('#issueTableBody').innerHTML = list.map(r=>{
+    const items = r.items||[];
+    const summary = items.map(it=>`${it.material?.name||'-'} x${it.quantity}`).join(', ');
+    const canDelete = r.status==='รออนุมัติ' && (isPriv || r.requester_id===state.user.id);
+    return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.issue_code)}</td>
       ${isPriv?`<td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>`:''}
-      <td class="py-2 pr-3">${escapeHtml(requestItemLabel(r))}</td>
-      <td class="py-2 pr-3">${r.quantity}</td>
+      <td class="py-2 pr-3 max-w-xs truncate" title="${escapeHtml(summary)}">${items.length} รายการ: ${escapeHtml(summary)}</td>
       <td class="py-2 pr-3">${statusBadge(r.status)}</td>
       <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
       <td class="py-2"><div class="flex gap-2">
+        <button onclick="openIssueDetailModal('${r.id}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center" title="ติดตามสถานะ"><i data-lucide="eye" class="w-4 h-4"></i></button>
         ${isPriv && r.status==='รออนุมัติ' ? `
-          <button onclick="approveRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
-          <button onclick="approveRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
-        ${(!isPriv && r.requester_id===state.user.id && r.status==='รออนุมัติ')?`<button onclick="deleteRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ยกเลิกคำร้อง"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
-        ${isPriv?`<button onclick="deleteRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+          <button onclick="approveIssueRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
+          <button onclick="approveIssueRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
+        ${canDelete?`<button onclick="deleteIssueRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ยกเลิก/ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
       </div></td>
-    </tr>`).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่พบคำร้องเบิกวัสดุ</td></tr>`;
+    </tr>`;
+  }).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่พบใบเบิกวัสดุ</td></tr>`;
   lucide.createIcons();
 }
 
-function openMaterialIssueModal(materialId){
-  openModal('เบิกวัสดุ', `
-    <form id="issueForm" class="space-y-3">
+function openIssueCreateModal(){
+  issueCart = [];
+  openModal('สร้างใบเบิกวัสดุใหม่', `
+    <div class="space-y-3">
       <div><label class="text-sm text-slate-500">รายการวัสดุ</label>
-        <select id="im_material_id" class="input-field">${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>
+        <select id="iq_material_id" class="input-field">
+          ${state.materials.filter(m=>m.is_active!==false).map(m=>`<option value="${m.id}">${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}
+        </select>
       </div>
-      <div><label class="text-sm text-slate-500">จำนวน</label><input id="im_quantity" type="number" min="1" value="1" class="input-field"></div>
-      <div><label class="text-sm text-slate-500">เหตุผล/รายละเอียด</label><textarea id="im_reason" rows="2" required class="input-field" placeholder="ระบุเหตุผลในการขอเบิก..."></textarea></div>
-      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">ส่งคำร้อง</button></div>
-    </form>
-  `);
-  $('#issueForm').onsubmit = submitMaterialIssueForm;
+      <div class="grid grid-cols-[1fr_auto] gap-2">
+        <input id="iq_quantity" type="number" min="1" value="1" class="input-field">
+        <button type="button" onclick="addToIssueCart()" class="btn-secondary gap-1"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มรายการ</button>
+      </div>
+      <div id="issueCartBody" class="space-y-2 max-h-56 overflow-y-auto"></div>
+      <div><label class="text-sm text-slate-500">เหตุผล/รายละเอียดการเบิก *</label><textarea id="iq_reason" rows="2" required class="input-field" placeholder="ระบุเหตุผลในการขอเบิก..."></textarea></div>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="button" onclick="submitIssueRequest()" class="btn-primary">ส่งใบเบิก</button></div>
+    </div>
+  `, 'max-w-lg');
+  renderIssueCart();
 }
 
-async function submitMaterialIssueForm(e){
-  e.preventDefault();
+function addToIssueCart(){
+  const materialId = $('#iq_material_id').value;
+  const qty = Number($('#iq_quantity').value);
+  if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
+  const mat = state.materials.find(m=>m.id===materialId);
+  if(!mat) return;
+  issueCart.push({ tempId: crypto.randomUUID(), material_id: materialId, material_name: mat.name, unit: mat.unit, quantity: qty });
+  $('#iq_quantity').value = 1;
+  renderIssueCart();
+}
+
+function removeFromIssueCart(tempId){
+  issueCart = issueCart.filter(c=>c.tempId !== tempId);
+  renderIssueCart();
+}
+
+function renderIssueCart(){
+  $('#issueCartBody').innerHTML = issueCart.map(c=>`
+    <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
+      <p class="text-sm text-slate-700 truncate">${escapeHtml(c.material_name)} <span class="text-emerald-600 font-medium">x${c.quantity} ${escapeHtml(c.unit)}</span></p>
+      <button onclick="removeFromIssueCart('${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+    </div>`).join('') || `<p class="text-center text-slate-300 py-4 text-sm">ยังไม่มีรายการ เลือกวัสดุแล้วกด "เพิ่มรายการ"</p>`;
+  lucide.createIcons();
+}
+
+async function submitIssueRequest(){
+  if(issueCart.length === 0){ showToast('กรุณาเพิ่มรายการวัสดุอย่างน้อย 1 รายการ','error'); return; }
+  const reason = $('#iq_reason').value.trim();
+  if(!reason){ showToast('กรุณาระบุเหตุผลการเบิก','error'); return; }
   showLoader();
   try{
-    const payload = {
-      request_code: 'REQ-' + Date.now().toString().slice(-8),
-      requester_id: state.user.id,
-      request_type: 'เบิกวัสดุ',
-      material_id: $('#im_material_id').value,
-      quantity: Number($('#im_quantity').value) || 1,
-      reason: $('#im_reason').value.trim(),
-      status: 'รออนุมัติ',
-    };
-    const { data, error } = await dbClient.from('requests').insert(payload).select().single();
-    if(error) throw error;
-    state.requests.unshift(data);
+    const issueCode = generateNextIssueCode();
+    const { data: header, error: e1 } = await dbClient.from('material_issue_requests').insert({
+      issue_code: issueCode, requester_id: state.user.id, reason, status:'รออนุมัติ'
+    }).select().single();
+    if(e1) throw e1;
+    const itemsPayload = issueCart.map(c=>({ issue_request_id: header.id, material_id: c.material_id, quantity: c.quantity }));
+    const { data: items, error: e2 } = await dbClient.from('material_issue_items').insert(itemsPayload).select('*, material:materials(name,unit,item_code)');
+    if(e2) throw e2;
+    header.items = items;
+    state.issueRequests.unshift(header);
+    issueCart = [];
     closeModal();
-    if(state.currentView==='matIssue') renderMatIssueTable();
+    if(state.currentView==='matIssue') renderMatIssue();
     else if(state.currentView==='dashboard') renderDashboard();
-    showToast('ส่งคำร้องเบิกวัสดุสำเร็จ รอการอนุมัติ','success');
-  }catch(err){ showToast('ส่งคำร้องไม่สำเร็จ: '+err.message,'error'); }
+    showToast('ส่งใบเบิกวัสดุสำเร็จ รอการอนุมัติ','success');
+  }catch(err){ showToast('ส่งใบเบิกไม่สำเร็จ: '+err.message,'error'); }
   finally{ hideLoader(); }
+}
+
+function openIssueDetailModal(id){
+  const r = state.issueRequests.find(x=>x.id===id);
+  if(!r) return;
+  const pending = r.status === 'รออนุมัติ';
+  const rejected = r.status === 'ไม่อนุมัติ';
+  const decided = !pending;
+  openModal(`ติดตามสถานะ: ${r.issue_code}`, `
+    <div class="mb-4 flex items-center justify-between">
+      <div><p class="text-xs text-slate-400">ผู้ขอเบิก</p><p class="font-medium text-slate-700">${escapeHtml(getUserName(r.requester_id))}</p></div>
+      ${statusBadge(r.status)}
+    </div>
+    <div class="mb-4 space-y-3">
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full bg-sky-100 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="file-plus" class="w-4 h-4"></i></div>
+        <div><p class="text-sm font-medium text-slate-700">สร้างใบเบิก</p><p class="text-xs text-slate-400">${formatDate(r.created_at)}</p></div>
+      </div>
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full ${decided ? (rejected?'bg-rose-100 text-rose-500':'bg-emerald-100 text-emerald-500') : 'bg-amber-100 text-amber-500'} flex items-center justify-center shrink-0">
+          <i data-lucide="${decided ? (rejected?'x-circle':'check-circle') : 'clock'}" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <p class="text-sm font-medium ${decided?'text-slate-700':'text-slate-400'}">${decided ? (rejected?'ไม่อนุมัติ':'อนุมัติแล้ว') : 'รอการอนุมัติ'}</p>
+          <p class="text-xs text-slate-400">${r.approved_at ? formatDate(r.approved_at) + (r.approved_by?' · โดย '+escapeHtml(getUserName(r.approved_by)):'') : '-'}</p>
+        </div>
+      </div>
+    </div>
+    ${r.approver_note?`<p class="text-xs text-slate-400 mb-4">หมายเหตุผู้อนุมัติ: ${escapeHtml(r.approver_note)}</p>`:''}
+    <div class="mb-3"><p class="text-sm text-slate-500 mb-1">เหตุผลการเบิก</p><p class="text-sm text-slate-700">${escapeHtml(r.reason||'-')}</p></div>
+    <div>
+      <p class="text-sm text-slate-500 mb-2">รายการวัสดุที่เบิก (${(r.items||[]).length} รายการ)</p>
+      <div class="space-y-2 max-h-48 overflow-y-auto">
+        ${(r.items||[]).map(it=>`
+          <div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm">
+            <span class="text-slate-700">${escapeHtml(it.material?.name||'-')}</span>
+            <span class="font-medium text-slate-600">${it.quantity} ${escapeHtml(it.material?.unit||'')}</span>
+          </div>`).join('') || '<p class="text-center text-slate-300 py-4 text-sm">ไม่มีรายการ</p>'}
+      </div>
+    </div>
+  `, 'max-w-lg');
+  lucide.createIcons();
+}
+
+function approveIssueRequest(id, approve){
+  const issue = state.issueRequests.find(r=>r.id===id);
+  if(!issue) return;
+  confirmAction(approve?'ยืนยันการอนุมัติใบเบิกนี้?':'ยืนยันไม่อนุมัติใบเบิกนี้?', async ()=>{
+    showLoader();
+    try{
+      const payload = { status: approve?'อนุมัติ':'ไม่อนุมัติ', approved_by: state.user.id, approved_at: new Date().toISOString() };
+      const { data, error } = await dbClient.from('material_issue_requests').update(payload).eq('id', id).select().single();
+      if(error) throw error;
+      Object.assign(issue, data);
+      if(approve){
+        for(const item of (issue.items||[])){
+          const mat = state.materials.find(m=>m.id===item.material_id);
+          if(!mat) continue;
+          const newQty = Math.max(0, Number(mat.quantity) - Number(item.quantity));
+          const { data: updatedMat } = await dbClient.from('materials').update({quantity:newQty}).eq('id', mat.id).select().single();
+          if(updatedMat) Object.assign(mat, updatedMat);
+          const { data: tx } = await dbClient.from('material_stock_transactions').insert({
+            material_id: mat.id, type:'เบิกออก', quantity: Number(item.quantity), note:'อนุมัติใบเบิก '+(issue.issue_code||''), reference_issue_id: issue.id, performed_by: state.user.id
+          }).select().single();
+          if(tx) state.stockTx.unshift(tx);
+        }
+      }
+      renderMatIssue();
+      showToast(approve?'อนุมัติใบเบิกสำเร็จ':'ไม่อนุมัติใบเบิก','success');
+    }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+function deleteIssueRequest(id){
+  confirmAction('ยืนยันการยกเลิก/ลบใบเบิกนี้?', async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('material_issue_requests').delete().eq('id', id);
+      if(error) throw error;
+      state.issueRequests = state.issueRequests.filter(r=>r.id!==id);
+      renderMatIssue();
+      showToast('ลบสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+function exportIssueRequestsCSV(){
+  const rows = [];
+  state.issueRequests.forEach(r=>{
+    (r.items||[]).forEach(it=>{
+      rows.push({ issue_code:r.issue_code, material_name: it.material?.name||'-', quantity: it.quantity, status:r.status, created_at:r.created_at });
+    });
+  });
+  exportCSV(rows, 'material_issue_requests.csv', ['issue_code','material_name','quantity','status','created_at']);
 }
 
 // ---------------------------------------------------------------------------
@@ -1682,7 +1824,7 @@ function renderSettings(){
           <div><p class="text-slate-400 text-xs">ผู้ใช้งานทั้งหมด</p><p class="text-slate-600 font-medium">${state.users.length} คน</p></div>
           <div><p class="text-slate-400 text-xs">รายการวัสดุ</p><p class="text-slate-600 font-medium">${state.materials.length} รายการ (ใกล้หมด ${lowStock})</p></div>
           <div><p class="text-slate-400 text-xs">ครุภัณฑ์</p><p class="text-slate-600 font-medium">${state.assets.length} รายการ</p></div>
-          <div><p class="text-slate-400 text-xs">คำร้องทั้งหมด</p><p class="text-slate-600 font-medium">${state.requests.length} รายการ</p></div>
+          <div><p class="text-slate-400 text-xs">คำร้องทั้งหมด</p><p class="text-slate-600 font-medium">${state.requests.length + state.issueRequests.length} รายการ</p></div>
         </div>
       </div>
     </div>

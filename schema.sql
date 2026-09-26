@@ -84,14 +84,13 @@ create table public.fixed_assets (
 );
 
 -- ----------------------------------------------------------------------------
--- 5) TABLE: requests (คำร้อง เบิกวัสดุ/ยืมครุภัณฑ์/แจ้งซ่อม)
+-- 5) TABLE: requests (คำร้อง ยืมครุภัณฑ์/แจ้งซ่อม - เบิกวัสดุแยกไปที่ material_issue_requests แล้ว)
 -- ----------------------------------------------------------------------------
 create table public.requests (
   id              uuid primary key default gen_random_uuid(),
   request_code    text unique,
   requester_id    uuid not null references public.users(id) on delete cascade,
-  request_type    text not null check (request_type in ('เบิกวัสดุ','ยืมครุภัณฑ์','แจ้งซ่อม','อื่นๆ')),
-  material_id     uuid references public.materials(id) on delete set null,
+  request_type    text not null check (request_type in ('ยืมครุภัณฑ์','แจ้งซ่อม','อื่นๆ')),
   fixed_asset_id  uuid references public.fixed_assets(id) on delete set null,
   quantity        numeric default 1,
   reason          text,
@@ -104,7 +103,31 @@ create table public.requests (
 );
 
 -- ----------------------------------------------------------------------------
--- 5b) TABLE: material_stock_transactions (ประวัติรับเข้า/เบิกออกวัสดุ - ใช้ทำ Stock Card)
+-- 5b) TABLE: material_issue_requests / material_issue_items (ใบเบิกวัสดุ - เบิกได้หลายรายการต่อ 1 ใบเบิก)
+-- ----------------------------------------------------------------------------
+create table public.material_issue_requests (
+  id              uuid primary key default gen_random_uuid(),
+  issue_code      text unique not null,
+  requester_id    uuid not null references public.users(id) on delete cascade,
+  reason          text,
+  status          text not null default 'รออนุมัติ' check (status in ('รออนุมัติ','อนุมัติ','ไม่อนุมัติ','เสร็จสิ้น')),
+  approved_by     uuid references public.users(id) on delete set null,
+  approved_at     timestamptz,
+  approver_note   text,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+
+create table public.material_issue_items (
+  id                uuid primary key default gen_random_uuid(),
+  issue_request_id  uuid not null references public.material_issue_requests(id) on delete cascade,
+  material_id       uuid not null references public.materials(id) on delete restrict,
+  quantity          numeric not null check (quantity > 0),
+  created_at        timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
+-- 5c) TABLE: material_stock_transactions (ประวัติรับเข้า/เบิกออกวัสดุ - ใช้ทำ Stock Card)
 -- ----------------------------------------------------------------------------
 create table public.material_stock_transactions (
   id                    uuid primary key default gen_random_uuid(),
@@ -113,6 +136,7 @@ create table public.material_stock_transactions (
   quantity              numeric not null check (quantity > 0),
   note                  text,
   reference_request_id  uuid references public.requests(id) on delete set null,
+  reference_issue_id    uuid references public.material_issue_requests(id) on delete set null,
   performed_by          uuid references public.users(id) on delete set null,
   created_at            timestamptz not null default now()
 );
@@ -125,6 +149,9 @@ create index idx_fixed_assets_category on public.fixed_assets(category);
 create index idx_fixed_assets_status on public.fixed_assets(status);
 create index idx_requests_requester on public.requests(requester_id);
 create index idx_requests_status on public.requests(status);
+create index idx_issue_items_request on public.material_issue_items(issue_request_id);
+create index idx_issue_requests_requester on public.material_issue_requests(requester_id);
+create index idx_issue_requests_status on public.material_issue_requests(status);
 create index idx_stock_tx_material on public.material_stock_transactions(material_id);
 
 -- ----------------------------------------------------------------------------
@@ -148,12 +175,14 @@ create trigger trg_fixed_assets_updated_at before update on public.fixed_assets
   for each row execute function public.set_updated_at();
 create trigger trg_requests_updated_at before update on public.requests
   for each row execute function public.set_updated_at();
+create trigger trg_issue_requests_updated_at before update on public.material_issue_requests
+  for each row execute function public.set_updated_at();
 
 -- ----------------------------------------------------------------------------
 -- 8) GRANTS - ให้สิทธิ์ anon/authenticated เข้าถึงตาราง (RLS ทำงานร่วมกับ GRANT เสมอ)
 -- ----------------------------------------------------------------------------
 grant usage on schema public to anon, authenticated;
-grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions to anon, authenticated;
+grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
@@ -164,6 +193,8 @@ alter table public.materials enable row level security;
 alter table public.fixed_assets enable row level security;
 alter table public.requests enable row level security;
 alter table public.material_stock_transactions enable row level security;
+alter table public.material_issue_requests enable row level security;
+alter table public.material_issue_items enable row level security;
 
 -- users
 create policy "users_select_all" on public.users for select using (true);
@@ -194,6 +225,18 @@ create policy "stock_tx_select_all" on public.material_stock_transactions for se
 create policy "stock_tx_insert_all" on public.material_stock_transactions for insert with check (true);
 create policy "stock_tx_update_all" on public.material_stock_transactions for update using (true) with check (true);
 create policy "stock_tx_delete_all" on public.material_stock_transactions for delete using (true);
+
+-- material_issue_requests
+create policy "issue_requests_select_all" on public.material_issue_requests for select using (true);
+create policy "issue_requests_insert_all" on public.material_issue_requests for insert with check (true);
+create policy "issue_requests_update_all" on public.material_issue_requests for update using (true) with check (true);
+create policy "issue_requests_delete_all" on public.material_issue_requests for delete using (true);
+
+-- material_issue_items
+create policy "issue_items_select_all" on public.material_issue_items for select using (true);
+create policy "issue_items_insert_all" on public.material_issue_items for insert with check (true);
+create policy "issue_items_update_all" on public.material_issue_items for update using (true) with check (true);
+create policy "issue_items_delete_all" on public.material_issue_items for delete using (true);
 
 -- ----------------------------------------------------------------------------
 -- 10) STORAGE: Bucket สำหรับรูปภาพ (ครุภัณฑ์ / วัสดุ / รูปโปรไฟล์)
@@ -261,9 +304,17 @@ union all
 select 'AST-005','เก้าอี้สำนักงาน','เฟอร์นิเจอร์','Ergotrend ERGO-01','SN-ERG010005','2021-05-05'::date,3200::numeric,'ชำรุด','ห้องธุรการ ชั้น 2', null,'เก้าอี้สำนักงานพนักพิงสูง', u1.id
 from public.users u1 where u1.username='staff';
 
-insert into public.requests (request_code, requester_id, request_type, material_id, quantity, reason, status)
-select 'REQ-0001', u.id, 'เบิกวัสดุ', m.id, 5, 'ใช้สำหรับพิมพ์เอกสารประจำเดือน', 'รออนุมัติ'
-from public.users u, public.materials m where u.username='employee' and m.item_code='MAT-001';
+-- ใบเบิกวัสดุตัวอย่าง (เบิกได้หลายรายการต่อ 1 ใบเบิก)
+with seed_issue as (
+  insert into public.material_issue_requests (issue_code, requester_id, reason, status)
+  select 'WD-2569-0001', u.id, 'ใช้สำหรับพิมพ์เอกสารประจำเดือน', 'รออนุมัติ'
+  from public.users u where u.username='employee'
+  returning id
+)
+insert into public.material_issue_items (issue_request_id, material_id, quantity)
+select seed_issue.id, m.id, 5 from seed_issue, public.materials m where m.item_code='MAT-001'
+union all
+select seed_issue.id, m.id, 10 from seed_issue, public.materials m where m.item_code='MAT-002';
 
 insert into public.requests (request_code, requester_id, request_type, fixed_asset_id, quantity, reason, status, approved_by, approved_at, approver_note)
 select 'REQ-0002', u.id, 'แจ้งซ่อม', a.id, 1, 'เครื่องเปิดไม่ติด แบตเตอรี่เสื่อม', 'อนุมัติ', s.id, now(), 'อนุมัติให้ส่งซ่อมที่ศูนย์บริการ'
