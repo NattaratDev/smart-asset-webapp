@@ -48,6 +48,7 @@
   .a4-sheet thead { display:table-header-group; }
   .a4-sheet tr { page-break-inside:avoid; }
   .ledger-preview .a4-sheet + .a4-sheet { margin-top:6mm; }
+  .a4-sheet table.led1 th, .a4-sheet table.led1 td { padding:.4mm 1.5mm; line-height:1.3; }
   .ledger-fill { flex:1; display:flex; flex-direction:column; }
   .ledger-fill table { flex:1 1 auto; }
   .a4-sheet.land { display:flex; flex-direction:column; width:297mm; min-height:207mm; padding:9mm 12mm; font-size:13px; line-height:1.55; }
@@ -1366,7 +1367,7 @@ function assetLedgerHtml(a){
     rows.push(`<tr><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td>${blank}<td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}</td>${blank}${blank}${blank}${blank}${blank}${num(fmtMoney(r.amount))}${num(fmtMoney(r.net))}<td style="font-size:11px">สะสม ${fmtMoney(r.accumulated)}</td></tr>`);
   });
   if(a.status === 'จำหน่ายแล้ว') rows.push(`<tr>${blank}${blank}<td>สถานะ: จำหน่ายแล้ว</td>${blank.repeat(8)}</tr>`);
-  while(rows.length < 9) rows.push(`<tr>${blank.repeat(11)}</tr>`);
+  while(rows.length < 20) rows.push(`<tr>${blank.repeat(11)}</tr>`);
   const th = (t, w, extra='') => `<th style="${w?'width:'+w+';':''}${extra}">${t}</th>`;
   return `<div class="a4-sheet land" style="page-break-after:always">
     <div style="text-align:center;font-size:20px;font-weight:700">ทะเบียนคุมทรัพย์สิน</div>
@@ -1378,11 +1379,11 @@ function assetLedgerHtml(a){
     ${grid('1.6fr 1fr', [fld('ที่อยู่', a.supplier_address), fld('โทรศัพท์', a.supplier_phone)])}
     <div style="margin-top:1.5mm"><b style="margin-right:4mm">ประเภทเงิน</b>${box(ASSET_FUND_TYPES, a.fund_type)}</div>
     <div style="margin-top:.5mm"><b style="margin-right:4mm">วิธีการได้มา</b>${box(ASSET_ACQ_METHODS, a.acquisition_method)}</div>
-    <div class="ledger-fill" style="margin-top:3mm"><table style="font-size:12px;table-layout:fixed">
+    <div style="margin-top:3mm"><table class="led1" style="font-size:12px;table-layout:fixed">
       <thead><tr>
         ${th('วัน เดือน ปี','25mm')}${th('ที่เอกสาร','22mm')}${th('รายการ','')}${th('จำนวนหน่วย','16mm')}${th('ราคาต่อหน่วย/ ชุด/กลุ่ม','26mm')}${th('มูลค่ารวม','26mm')}${th('อายุใช้งาน','16mm')}${th('อัตราค่า เสื่อมราคา','19mm')}${th('ค่าเสื่อม ราคา','24mm')}${th('มูลค่าสุทธิ','26mm')}${th('หมายเหตุ','27mm')}
       </tr></thead>
-      <tbody>${rows.map(r=>r.replace('<tr>','<tr style="height:7mm">')).join('')}</tbody>
+      <tbody>${rows.map(r=>r.replace('<tr>','<tr style="height:5.6mm">')).join('')}</tbody>
     </table></div>
     ${dep.ready ? '' : '<div style="font-size:11px;color:#666;margin-top:1mm">* ยังไม่ได้กำหนดอายุการใช้งาน/ราคา/วันที่ได้มา จึงไม่คำนวณค่าเสื่อมราคา (แก้ไขได้ที่ทะเบียนครุภัณฑ์)</div>'}
     <div style="font-size:10.5px;color:#555;margin-top:1mm">ค่าเสื่อมราคาคำนวณแบบเส้นตรง มูลค่าซาก 1 บาท ตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา</div>
