@@ -228,8 +228,8 @@ const MENU_ITEMS = {
   matIssue:    { label: 'เบิกวัสดุ', icon: 'package-minus' },
   matTrack:    { label: 'ติดตามสถานะการเบิก', icon: 'list-checks' },
   matCard:     { label: 'Stock Card', icon: 'scroll-text' },
-  repReceive:  { label: 'รายงานการรับเข้าวัสดุ', icon: 'file-input' },
-  repIssue:    { label: 'รายงานการเบิกวัสดุ', icon: 'file-output' },
+  repReceive:  { label: 'รายงานการรับเข้าวัสดุ', short: 'รายงานรับเข้า', icon: 'file-input' },
+  repIssue:    { label: 'รายงานการเบิกวัสดุ', short: 'รายงานเบิก', icon: 'file-output' },
   repBalance:  { label: 'รายงานคงเหลือ', icon: 'bar-chart-3' },
   assets:      { label: 'ครุภัณฑ์', icon: 'monitor' },
   requests:    { label: 'คำร้อง', icon: 'clipboard-list' },
@@ -592,8 +592,8 @@ function buildSidebar(){
         return `<div class="flex items-center gap-2 w-full ${depth?'pl-14':'pl-11'} pr-4 pt-2 pb-0.5 text-[12px] font-semibold text-slate-400"><i data-lucide="${c.icon}" class="w-3.5 h-3.5"></i>${c.group}</div>` + renderChildren(c.children||[], depth+1);
       }
       const citem = MENU_ITEMS[c.key];
-      return `<button data-view="${c.key}" onclick="navigate('${c.key}')" class="nav-btn flex items-center gap-3 w-full ${depth?'pl-16':'pl-11'} pr-4 py-2 rounded-2xl text-[13px] font-medium text-slate-400 hover:bg-sky-50 hover:text-sky-500 transition">
-        <i data-lucide="${citem.icon}" class="w-4 h-4"></i> ${citem.label}
+      return `<button data-view="${c.key}" onclick="navigate('${c.key}')" class="nav-btn flex items-center gap-2.5 w-full whitespace-nowrap ${depth?'pl-14':'pl-11'} pr-3 py-2 rounded-2xl text-[13px] font-medium text-slate-400 hover:bg-sky-50 hover:text-sky-500 transition">
+        <i data-lucide="${citem.icon}" class="w-4 h-4"></i> ${citem.short||citem.label}
       </button>`;
     }).join('');
     const childrenBtns = renderChildren(node.children||[], 0);
