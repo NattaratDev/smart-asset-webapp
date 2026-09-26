@@ -201,45 +201,56 @@ const dbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 Chart.defaults.font.family = 'Kanit';
 
 const SESSION_KEY = 'smartasset_session';
-const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], charts: {} };
+const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], stockTx: [], charts: {} };
 
 const MENU_ITEMS = {
-  dashboard: { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
-  materials: { label: 'วัสดุ', icon: 'package' },
-  assets: { label: 'ครุภัณฑ์', icon: 'monitor' },
-  requests: { label: 'คำร้อง', icon: 'clipboard-list' },
-  employees: { label: 'พนักงาน', icon: 'users' },
-  profile: { label: 'โปรไฟล์', icon: 'user-circle' },
-  settings: { label: 'ตั้งค่าระบบ', icon: 'settings' },
+  dashboard:   { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
+  matStock:    { label: 'คลังวัสดุ', icon: 'box' },
+  matReceive:  { label: 'รับเข้าวัสดุ', icon: 'package-plus' },
+  matIssue:    { label: 'เบิกวัสดุ', icon: 'package-minus' },
+  matCard:     { label: 'คงเหลือ/Stock Card', icon: 'scroll-text' },
+  assets:      { label: 'ครุภัณฑ์', icon: 'monitor' },
+  requests:    { label: 'คำร้อง', icon: 'clipboard-list' },
+  employees:   { label: 'พนักงาน', icon: 'users' },
+  profile:     { label: 'โปรไฟล์', icon: 'user-circle' },
+  settings:    { label: 'ตั้งค่าระบบ', icon: 'settings' },
 };
 
-// โครงสร้างเมนูแยกตามสิทธิ์ - admin ย้าย "คำร้อง" ไปเป็นเมนูย่อยของ "วัสดุ" และเพิ่ม "ตั้งค่าระบบ"
+// โครงสร้างเมนูแยกตามสิทธิ์
+// - "วัสดุ" เป็นเมนูกลุ่ม (ไม่คลิกนำทางเอง) มีเมนูย่อย 4 อัน: คลังวัสดุ/รับเข้าวัสดุ(staff+admin)/เบิกวัสดุ/คงเหลือ
+// - "คำร้อง" (ยืมครุภัณฑ์/แจ้งซ่อม) ย้ายไปเป็นเมนูย่อยของ "ครุภัณฑ์" แทน
 const ROLE_MENU = {
   admin: [
     { key:'dashboard' },
-    { key:'materials', children:[{key:'requests'}] },
-    { key:'assets' },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matCard'}] },
+    { key:'assets', children:[{key:'requests'}] },
     { key:'employees' },
     { key:'profile' },
     { key:'settings' },
   ],
   staff: [
-    { key:'dashboard' }, { key:'materials' }, { key:'assets' }, { key:'requests' }, { key:'profile' },
+    { key:'dashboard' },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matCard'}] },
+    { key:'assets', children:[{key:'requests'}] },
+    { key:'profile' },
   ],
   employee: [
-    { key:'dashboard' }, { key:'materials' }, { key:'assets' }, { key:'requests' }, { key:'profile' },
+    { key:'dashboard' },
+    { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matIssue'},{key:'matCard'}] },
+    { key:'assets', children:[{key:'requests'}] },
+    { key:'profile' },
   ],
 };
 
 const ROLE_BOTTOM_NAV_KEYS = {
-  admin: ['dashboard','materials','assets','profile'],
-  staff: ['dashboard','materials','assets','requests'],
-  employee: ['dashboard','materials','assets','requests'],
+  admin: ['dashboard','matStock','assets','profile'],
+  staff: ['dashboard','matStock','assets','matIssue'],
+  employee: ['dashboard','matStock','assets','matIssue'],
 };
 
 function flatMenuKeys(role){
   const out = [];
-  (ROLE_MENU[role]||[]).forEach(node=>{ out.push(node.key); (node.children||[]).forEach(c=>out.push(c.key)); });
+  (ROLE_MENU[role]||[]).forEach(node=>{ if(node.key) out.push(node.key); (node.children||[]).forEach(c=>out.push(c.key)); });
   return out;
 }
 
@@ -310,6 +321,7 @@ function statusBadge(status){
 }
 function getUserName(id){ const u = state.users.find(x=>x.id===id); return u ? u.full_name : '-'; }
 function getMaterialName(id){ const m = state.materials.find(x=>x.id===id); return m ? `${m.name} (${m.quantity} ${m.unit})` : '-'; }
+function getMaterialNameOnly(id){ const m = state.materials.find(x=>x.id===id); return m ? m.name : '-'; }
 function getAssetName(id){ const a = state.assets.find(x=>x.id===id); return a ? `${a.name} (${a.asset_code||'-'})` : '-'; }
 function requestItemLabel(r){
   if(r.material_id) return getMaterialName(r.material_id);
@@ -468,14 +480,15 @@ async function loadLandingStats(){
 async function fetchAll(){
   showLoader();
   try{
-    const [{data:users,error:e1},{data:materials,error:e2},{data:assets,error:e3},{data:requests,error:e4}] = await Promise.all([
+    const [{data:users,error:e1},{data:materials,error:e2},{data:assets,error:e3},{data:requests,error:e4},{data:stockTx,error:e5}] = await Promise.all([
       dbClient.from('users').select('*').order('created_at',{ascending:false}),
       dbClient.from('materials').select('*').order('created_at',{ascending:false}),
       dbClient.from('fixed_assets').select('*').order('created_at',{ascending:false}),
       dbClient.from('requests').select('*').order('created_at',{ascending:false}),
+      dbClient.from('material_stock_transactions').select('*').order('created_at',{ascending:false}),
     ]);
-    if(e1||e2||e3||e4) throw (e1||e2||e3||e4);
-    state.users = users||[]; state.materials = materials||[]; state.assets = assets||[]; state.requests = requests||[];
+    if(e1||e2||e3||e4||e5) throw (e1||e2||e3||e4||e5);
+    state.users = users||[]; state.materials = materials||[]; state.assets = assets||[]; state.requests = requests||[]; state.stockTx = stockTx||[];
   }catch(err){ showToast('โหลดข้อมูลล้มเหลว: '+err.message,'error'); }
   finally{ hideLoader(); }
 }
@@ -492,17 +505,24 @@ function navBtnHtml(key, extraClass=''){
 function buildSidebar(){
   const nodes = ROLE_MENU[state.user.role] || [];
   $('#sidebarNav').innerHTML = nodes.map(node=>{
-    const item = MENU_ITEMS[node.key];
-    const parentBtn = `<button data-view="${node.key}" onclick="navigate('${node.key}')" class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-500 hover:bg-sky-50 hover:text-sky-500 transition">
-      <i data-lucide="${item.icon}" class="w-5 h-5"></i> ${item.label}
-    </button>`;
+    let headHtml;
+    if(node.key){
+      const item = MENU_ITEMS[node.key];
+      headHtml = `<button data-view="${node.key}" onclick="navigate('${node.key}')" class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-500 hover:bg-sky-50 hover:text-sky-500 transition">
+        <i data-lucide="${item.icon}" class="w-5 h-5"></i> ${item.label}
+      </button>`;
+    } else {
+      headHtml = `<div class="flex items-center gap-3 w-full px-4 pt-3 pb-1 text-[13px] font-semibold text-slate-400">
+        <i data-lucide="${node.icon}" class="w-4 h-4"></i> ${node.group}
+      </div>`;
+    }
     const childrenBtns = (node.children||[]).map(c=>{
       const citem = MENU_ITEMS[c.key];
       return `<button data-view="${c.key}" onclick="navigate('${c.key}')" class="nav-btn flex items-center gap-3 w-full pl-11 pr-4 py-2 rounded-2xl text-[13px] font-medium text-slate-400 hover:bg-sky-50 hover:text-sky-500 transition">
         <i data-lucide="${citem.icon}" class="w-4 h-4"></i> ${citem.label}
       </button>`;
     }).join('');
-    return parentBtn + childrenBtns;
+    return headHtml + childrenBtns;
   }).join('');
   $('#sidebarUserName').textContent = state.user.full_name;
   $('#sidebarUserRole').textContent = roleLabel(state.user.role);
@@ -531,7 +551,8 @@ function buildBottomNav(){
   if(isAdmin){
     let grid = '';
     (ROLE_MENU.admin||[]).forEach(node=>{
-      [node, ...(node.children||[])].forEach(n=>{
+      const leaves = [...(node.key?[node]:[]), ...(node.children||[])];
+      leaves.forEach(n=>{
         const item = MENU_ITEMS[n.key];
         grid += `<button onclick="navigate('${n.key}'); closeAdminPanel();" class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-50 hover:bg-sky-50">
           <i data-lucide="${item.icon}" class="w-6 h-6 text-sky-400"></i>
@@ -570,7 +591,7 @@ function navigate(view){
   closeAdminPanel();
   closeUserMenu();
   $('#pageTitle').textContent = item ? item.label : '';
-  const renderers = { dashboard: renderDashboard, employees: renderEmployees, materials: renderMaterials, assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matCard: renderMatCard, assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -838,9 +859,20 @@ function deleteUser(id){
 // ---------------------------------------------------------------------------
 // Materials
 // ---------------------------------------------------------------------------
-function materialsSubTabsHtml(activeKey){
-  if(state.user.role !== 'admin') return '';
-  const tabs = [{key:'materials', label:'รายการวัสดุ'}, {key:'requests', label:'คำร้อง'}];
+function materialTabsHtml(activeKey){
+  const role = state.user.role;
+  const tabs = [
+    {key:'matStock', label:'คลังวัสดุ'},
+    ...(role !== 'employee' ? [{key:'matReceive', label:'รับเข้าวัสดุ'}] : []),
+    {key:'matIssue', label:'เบิกวัสดุ'},
+    {key:'matCard', label:'คงเหลือ/Stock Card'},
+  ];
+  return `<div class="flex gap-2 mb-4 flex-wrap">${tabs.map(t=>`
+    <button onclick="navigate('${t.key}')" class="px-4 py-2 rounded-2xl text-sm font-medium transition ${t.key===activeKey?'bg-gradient-to-r from-sky-300 to-pink-300 text-white shadow-soft':'bg-white text-slate-500 hover:bg-sky-50'}">${t.label}</button>`).join('')}</div>`;
+}
+
+function assetTabsHtml(activeKey){
+  const tabs = [{key:'assets', label:'ครุภัณฑ์'}, {key:'requests', label:'คำร้อง'}];
   return `<div class="flex gap-2 mb-4">${tabs.map(t=>`
     <button onclick="navigate('${t.key}')" class="px-4 py-2 rounded-2xl text-sm font-medium transition ${t.key===activeKey?'bg-gradient-to-r from-sky-300 to-pink-300 text-white shadow-soft':'bg-white text-slate-500 hover:bg-sky-50'}">${t.label}</button>`).join('')}</div>`;
 }
@@ -848,7 +880,7 @@ function materialsSubTabsHtml(activeKey){
 function renderMaterials(){
   const canManage = state.user.role !== 'employee';
   $('#mainContent').innerHTML = `
-    ${materialsSubTabsHtml('materials')}
+    ${materialTabsHtml('matStock')}
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="relative w-full sm:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
@@ -878,7 +910,7 @@ function renderMaterialGrid(){
       <p class="text-xs text-slate-400 mb-2">${escapeHtml(m.category||'ไม่ระบุหมวดหมู่')}</p>
       <div class="mb-3"><span class="badge ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${m.quantity} ${escapeHtml(m.unit)}${low?' (ใกล้หมด)':''}</span></div>
       <div class="flex gap-2">
-        <button onclick="openRequestModal('เบิกวัสดุ','${m.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="send" class="w-3.5 h-3.5"></i>ขอเบิก</button>
+        <button onclick="openMaterialIssueModal('${m.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="send" class="w-3.5 h-3.5"></i>ขอเบิก</button>
         ${canManage?`<button onclick="openMaterialModal('${m.id}')" class="w-9 h-9 rounded-xl bg-sky-50 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="pencil" class="w-4 h-4"></i></button>
         <button onclick="deleteMaterial('${m.id}')" class="w-9 h-9 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
       </div>
@@ -941,6 +973,12 @@ async function submitMaterialForm(e, record){
       const { data, error } = await dbClient.from('materials').insert(payload).select().single();
       if(error) throw error;
       state.materials.unshift(data);
+      if(data.quantity > 0){
+        const { data: tx } = await dbClient.from('material_stock_transactions').insert({
+          material_id: data.id, type:'รับเข้า', quantity: data.quantity, note:'ยอดตั้งต้น', performed_by: state.user.id
+        }).select().single();
+        if(tx) state.stockTx.unshift(tx);
+      }
     }
     closeModal(); renderMaterials(); showToast('บันทึกสำเร็จ','success');
   }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
@@ -966,6 +1004,7 @@ function deleteMaterial(id){
 function renderAssets(){
   const canManage = state.user.role !== 'employee';
   $('#mainContent').innerHTML = `
+    ${assetTabsHtml('assets')}
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="relative w-full sm:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
@@ -1152,15 +1191,15 @@ async function submitRequestForm(e){
 function renderRequests(){
   const isPriv = state.user.role !== 'employee';
   $('#mainContent').innerHTML = `
-    ${materialsSubTabsHtml('requests')}
+    ${assetTabsHtml('requests')}
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="relative w-full sm:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
         <input id="reqSearch" oninput="renderRequestTable()" placeholder="ค้นหาคำร้อง..." class="input-field pl-9">
       </div>
       <div class="flex gap-2">
-        ${state.user.role==='admin'?`<button onclick="exportCSV(state.requests,'requests.csv',['request_code','request_type','quantity','status','created_at'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
-        <button onclick="openRequestModal('เบิกวัสดุ')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างคำร้อง</button>
+        ${state.user.role==='admin'?`<button onclick="exportCSV(state.requests.filter(r=>r.request_type!=='เบิกวัสดุ'),'requests.csv',['request_code','request_type','quantity','status','created_at'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        <button onclick="openRequestModal('ยืมครุภัณฑ์')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างคำร้อง</button>
       </div>
     </div>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
@@ -1175,6 +1214,7 @@ function renderRequestTable(){
   const isPriv = state.user.role !== 'employee';
   const q = ($('#reqSearch')?.value||'').toLowerCase();
   let list = isPriv ? state.requests : state.requests.filter(r=>r.requester_id===state.user.id);
+  list = list.filter(r=>r.request_type !== 'เบิกวัสดุ');
   list = list.filter(r=>!q || (r.request_code||'').toLowerCase().includes(q) || r.request_type.toLowerCase().includes(q));
   $('#reqTableBody').innerHTML = list.map(r=>`
     <tr class="border-b border-slate-50 hover:bg-slate-50/60">
@@ -1196,6 +1236,11 @@ function renderRequestTable(){
   lucide.createIcons();
 }
 
+function refreshRequestView(){
+  if(state.currentView==='matIssue') renderMatIssueTable();
+  else if(state.currentView==='requests') renderRequestTable();
+}
+
 function approveRequest(id, approve){
   confirmAction(approve?'ยืนยันการอนุมัติคำร้องนี้?':'ยืนยันไม่อนุมัติคำร้องนี้?', async ()=>{
     showLoader();
@@ -1211,9 +1256,13 @@ function approveRequest(id, approve){
           const newQty = Math.max(0, Number(mat.quantity) - Number(data.quantity));
           const { data: updatedMat } = await dbClient.from('materials').update({quantity:newQty}).eq('id', mat.id).select().single();
           if(updatedMat) Object.assign(mat, updatedMat);
+          const { data: tx } = await dbClient.from('material_stock_transactions').insert({
+            material_id: mat.id, type:'เบิกออก', quantity: Number(data.quantity), note:'อนุมัติคำร้อง '+(data.request_code||''), reference_request_id: data.id, performed_by: state.user.id
+          }).select().single();
+          if(tx) state.stockTx.unshift(tx);
         }
       }
-      renderRequestTable();
+      refreshRequestView();
       showToast(approve?'อนุมัติคำร้องสำเร็จ':'ไม่อนุมัติคำร้อง','success');
     }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
@@ -1227,10 +1276,237 @@ function deleteRequest(id){
       const { error } = await dbClient.from('requests').delete().eq('id', id);
       if(error) throw error;
       state.requests = state.requests.filter(r=>r.id!==id);
-      renderRequestTable(); showToast('ลบสำเร็จ','success');
+      refreshRequestView(); showToast('ลบสำเร็จ','success');
     }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
   });
+}
+
+// ---------------------------------------------------------------------------
+// รับเข้าวัสดุ (Stock In) - staff/admin เท่านั้น
+// ---------------------------------------------------------------------------
+function renderMatReceive(){
+  if(state.user.role === 'employee'){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); navigate('matStock'); return; }
+  $('#mainContent').innerHTML = `
+    ${materialTabsHtml('matReceive')}
+    <div class="grid lg:grid-cols-3 gap-5">
+      <div class="card lg:col-span-1 h-fit">
+        <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="package-plus" class="w-5 h-5 text-emerald-400"></i>บันทึกรับเข้าวัสดุ</h3>
+        <form id="receiveForm" class="space-y-3">
+          <div><label class="text-sm text-slate-500">รายการวัสดุ</label>
+            <select id="rc_material_id" class="input-field" required>
+              ${state.materials.map(m=>`<option value="${m.id}">${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}
+            </select>
+          </div>
+          <div><label class="text-sm text-slate-500">จำนวนที่รับเข้า</label><input id="rc_quantity" type="number" min="0.01" step="0.01" required class="input-field"></div>
+          <div><label class="text-sm text-slate-500">หมายเหตุ (เลขที่ใบสั่งซื้อ/ผู้จำหน่าย)</label><textarea id="rc_note" rows="2" class="input-field"></textarea></div>
+          <button type="submit" class="btn-primary w-full justify-center gap-2"><i data-lucide="package-plus" class="w-4 h-4"></i>บันทึกรับเข้า</button>
+        </form>
+      </div>
+      <div class="card lg:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <h3 class="font-semibold text-slate-600">ประวัติการรับเข้าล่าสุด</h3>
+          ${state.user.role==='admin'?`<button onclick="exportCSV(state.stockTx.filter(t=>t.type==='รับเข้า').map(t=>({...t, material_name:getMaterialNameOnly(t.material_id)})),'stock_in.csv',['material_name','quantity','note','created_at'])" class="btn-secondary gap-2 !py-1.5 !px-3 text-xs"><i data-lucide="download" class="w-3.5 h-3.5"></i>รายงาน</button>`:''}
+        </div>
+        <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+          <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">วัสดุ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">ผู้บันทึก</th><th class="py-2">หมายเหตุ</th>
+        </tr></thead><tbody id="receiveHistoryBody"></tbody></table></div>
+      </div>
+    </div>
+  `;
+  lucide.createIcons();
+  renderReceiveHistory();
+  $('#receiveForm').onsubmit = submitReceiveForm;
+}
+
+function renderReceiveHistory(){
+  const rows = state.stockTx.filter(t=>t.type==='รับเข้า').slice(0,15);
+  $('#receiveHistoryBody').innerHTML = rows.map(t=>`
+    <tr class="border-b border-slate-50">
+      <td class="py-2 pr-3 text-slate-400">${formatDate(t.created_at)}</td>
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(getMaterialNameOnly(t.material_id))}</td>
+      <td class="py-2 pr-3 text-emerald-600 font-medium">+${t.quantity}</td>
+      <td class="py-2 pr-3">${escapeHtml(getUserName(t.performed_by))}</td>
+      <td class="py-2 text-slate-400">${escapeHtml(t.note||'-')}</td>
+    </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการรับเข้า</td></tr>`;
+}
+
+async function submitReceiveForm(e){
+  e.preventDefault();
+  showLoader();
+  try{
+    const materialId = $('#rc_material_id').value;
+    const qty = Number($('#rc_quantity').value);
+    const note = $('#rc_note').value.trim() || null;
+    if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); hideLoader(); return; }
+    const { data: tx, error: e1 } = await dbClient.from('material_stock_transactions').insert({
+      material_id: materialId, type:'รับเข้า', quantity: qty, note, performed_by: state.user.id
+    }).select().single();
+    if(e1) throw e1;
+    state.stockTx.unshift(tx);
+    const mat = state.materials.find(m=>m.id===materialId);
+    const newQty = Number(mat.quantity) + qty;
+    const { data: updatedMat, error: e2 } = await dbClient.from('materials').update({quantity:newQty}).eq('id', materialId).select().single();
+    if(e2) throw e2;
+    Object.assign(mat, updatedMat);
+    $('#receiveForm').reset();
+    renderReceiveHistory();
+    showToast('บันทึกรับเข้าวัสดุสำเร็จ','success');
+  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+// ---------------------------------------------------------------------------
+// เบิกวัสดุ (Material Issue Request) - ทุกสิทธิ์
+// ---------------------------------------------------------------------------
+function renderMatIssue(){
+  const isPriv = state.user.role !== 'employee';
+  $('#mainContent').innerHTML = `
+    ${materialTabsHtml('matIssue')}
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="issueSearch" oninput="renderMatIssueTable()" placeholder="ค้นหาคำร้องเบิกวัสดุ..." class="input-field pl-9">
+      </div>
+      <div class="flex gap-2">
+        ${state.user.role==='admin'?`<button onclick="exportCSV(state.requests.filter(r=>r.request_type==='เบิกวัสดุ'),'material_requests.csv',['request_code','quantity','status','created_at'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        <button onclick="openMaterialIssueModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เบิกวัสดุ</button>
+      </div>
+    </div>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">รหัส</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">วัสดุ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
+    </tr></thead><tbody id="issueTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderMatIssueTable();
+}
+
+function renderMatIssueTable(){
+  const isPriv = state.user.role !== 'employee';
+  const q = ($('#issueSearch')?.value||'').toLowerCase();
+  let list = state.requests.filter(r=>r.request_type==='เบิกวัสดุ');
+  if(!isPriv) list = list.filter(r=>r.requester_id===state.user.id);
+  list = list.filter(r=>!q || (r.request_code||'').toLowerCase().includes(q));
+  const colspan = isPriv ? 7 : 6;
+  $('#issueTableBody').innerHTML = list.map(r=>`
+    <tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.request_code)}</td>
+      ${isPriv?`<td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>`:''}
+      <td class="py-2 pr-3">${escapeHtml(requestItemLabel(r))}</td>
+      <td class="py-2 pr-3">${r.quantity}</td>
+      <td class="py-2 pr-3">${statusBadge(r.status)}</td>
+      <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
+      <td class="py-2"><div class="flex gap-2">
+        ${isPriv && r.status==='รออนุมัติ' ? `
+          <button onclick="approveRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
+          <button onclick="approveRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
+        ${(!isPriv && r.requester_id===state.user.id && r.status==='รออนุมัติ')?`<button onclick="deleteRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ยกเลิกคำร้อง"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+        ${isPriv?`<button onclick="deleteRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+      </div></td>
+    </tr>`).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่พบคำร้องเบิกวัสดุ</td></tr>`;
+  lucide.createIcons();
+}
+
+function openMaterialIssueModal(materialId){
+  openModal('เบิกวัสดุ', `
+    <form id="issueForm" class="space-y-3">
+      <div><label class="text-sm text-slate-500">รายการวัสดุ</label>
+        <select id="im_material_id" class="input-field">${state.materials.map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>
+      </div>
+      <div><label class="text-sm text-slate-500">จำนวน</label><input id="im_quantity" type="number" min="1" value="1" class="input-field"></div>
+      <div><label class="text-sm text-slate-500">เหตุผล/รายละเอียด</label><textarea id="im_reason" rows="2" required class="input-field" placeholder="ระบุเหตุผลในการขอเบิก..."></textarea></div>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">ส่งคำร้อง</button></div>
+    </form>
+  `);
+  $('#issueForm').onsubmit = submitMaterialIssueForm;
+}
+
+async function submitMaterialIssueForm(e){
+  e.preventDefault();
+  showLoader();
+  try{
+    const payload = {
+      request_code: 'REQ-' + Date.now().toString().slice(-8),
+      requester_id: state.user.id,
+      request_type: 'เบิกวัสดุ',
+      material_id: $('#im_material_id').value,
+      quantity: Number($('#im_quantity').value) || 1,
+      reason: $('#im_reason').value.trim(),
+      status: 'รออนุมัติ',
+    };
+    const { data, error } = await dbClient.from('requests').insert(payload).select().single();
+    if(error) throw error;
+    state.requests.unshift(data);
+    closeModal();
+    if(state.currentView==='matIssue') renderMatIssueTable();
+    else if(state.currentView==='dashboard') renderDashboard();
+    showToast('ส่งคำร้องเบิกวัสดุสำเร็จ รอการอนุมัติ','success');
+  }catch(err){ showToast('ส่งคำร้องไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+// ---------------------------------------------------------------------------
+// คงเหลือ / Stock Card - ทุกสิทธิ์ (อ่านอย่างเดียว)
+// ---------------------------------------------------------------------------
+function renderMatCard(){
+  $('#mainContent').innerHTML = `
+    ${materialTabsHtml('matCard')}
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="cardSearch" oninput="renderMatCardTable()" placeholder="ค้นหาวัสดุ..." class="input-field pl-9">
+      </div>
+      ${state.user.role==='admin'?`<button onclick="exportCSV(state.materials,'stock_balance.csv',['item_code','name','category','unit','quantity','min_quantity'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+    </div>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">รหัส</th><th class="py-2 pr-3">ชื่อวัสดุ</th><th class="py-2 pr-3">หมวดหมู่</th><th class="py-2 pr-3">คงเหลือ</th><th class="py-2 pr-3">จุดสั่งซื้อขั้นต่ำ</th><th class="py-2">Stock Card</th>
+    </tr></thead><tbody id="cardTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderMatCardTable();
+}
+
+function renderMatCardTable(){
+  const q = ($('#cardSearch')?.value||'').toLowerCase();
+  const list = state.materials.filter(m=>!q || m.name.toLowerCase().includes(q) || (m.item_code||'').toLowerCase().includes(q));
+  $('#cardTableBody').innerHTML = list.map(m=>{
+    const low = Number(m.quantity) <= Number(m.min_quantity);
+    return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(m.item_code||'-')}</td>
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(m.name)}</td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(m.category||'-')}</td>
+      <td class="py-2 pr-3"><span class="badge ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${m.quantity} ${escapeHtml(m.unit)}</span></td>
+      <td class="py-2 pr-3 text-slate-500">${m.min_quantity} ${escapeHtml(m.unit)}</td>
+      <td class="py-2"><button onclick="openStockCardModal('${m.id}')" class="btn-secondary !py-1.5 !px-3 text-xs gap-1"><i data-lucide="scroll-text" class="w-3.5 h-3.5"></i>ดูรายการ</button></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6" class="py-8 text-center text-slate-300">ไม่พบข้อมูลวัสดุ</td></tr>`;
+  lucide.createIcons();
+}
+
+function openStockCardModal(materialId){
+  const mat = state.materials.find(m=>m.id===materialId);
+  if(!mat) return;
+  const txs = state.stockTx.filter(t=>t.material_id===materialId).slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+  let balance = 0;
+  const rows = txs.map(t=>{
+    balance += (t.type==='รับเข้า' ? Number(t.quantity) : -Number(t.quantity));
+    return {...t, balance};
+  }).reverse();
+  openModal(`Stock Card: ${mat.name}`, `
+    <div class="mb-3 text-sm text-slate-500">คงเหลือปัจจุบัน: <span class="font-semibold text-slate-700">${mat.quantity} ${escapeHtml(mat.unit)}</span></div>
+    <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100 sticky top-0 bg-white">
+      <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">คงเหลือ</th><th class="py-2">ผู้ทำรายการ</th>
+    </tr></thead><tbody>
+      ${rows.map(t=>`
+        <tr class="border-b border-slate-50">
+          <td class="py-2 pr-3 text-slate-400">${formatDate(t.created_at)}</td>
+          <td class="py-2 pr-3">${t.type==='รับเข้า'?'<span class="text-emerald-600">รับเข้า</span>':'<span class="text-rose-500">เบิกออก</span>'}${t.note?`<div class="text-xs text-slate-400">${escapeHtml(t.note)}</div>`:''}</td>
+          <td class="py-2 pr-3 font-medium ${t.type==='รับเข้า'?'text-emerald-600':'text-rose-500'}">${t.type==='รับเข้า'?'+':'-'}${t.quantity}</td>
+          <td class="py-2 pr-3">${t.balance}</td>
+          <td class="py-2">${escapeHtml(getUserName(t.performed_by))}</td>
+        </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการเคลื่อนไหว</td></tr>`}
+    </tbody></table></div>
+  `, 'max-w-2xl');
 }
 
 // ---------------------------------------------------------------------------

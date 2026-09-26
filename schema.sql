@@ -101,6 +101,20 @@ create table public.requests (
 );
 
 -- ----------------------------------------------------------------------------
+-- 5b) TABLE: material_stock_transactions (ประวัติรับเข้า/เบิกออกวัสดุ - ใช้ทำ Stock Card)
+-- ----------------------------------------------------------------------------
+create table public.material_stock_transactions (
+  id                    uuid primary key default gen_random_uuid(),
+  material_id           uuid not null references public.materials(id) on delete cascade,
+  type                  text not null check (type in ('รับเข้า','เบิกออก','ปรับปรุง')),
+  quantity              numeric not null check (quantity > 0),
+  note                  text,
+  reference_request_id  uuid references public.requests(id) on delete set null,
+  performed_by          uuid references public.users(id) on delete set null,
+  created_at            timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
 -- 6) INDEXES
 -- ----------------------------------------------------------------------------
 create index idx_materials_category on public.materials(category);
@@ -108,6 +122,7 @@ create index idx_fixed_assets_category on public.fixed_assets(category);
 create index idx_fixed_assets_status on public.fixed_assets(status);
 create index idx_requests_requester on public.requests(requester_id);
 create index idx_requests_status on public.requests(status);
+create index idx_stock_tx_material on public.material_stock_transactions(material_id);
 
 -- ----------------------------------------------------------------------------
 -- 7) AUTO-UPDATE updated_at TRIGGER
@@ -135,7 +150,7 @@ create trigger trg_requests_updated_at before update on public.requests
 -- 8) GRANTS - ให้สิทธิ์ anon/authenticated เข้าถึงตาราง (RLS ทำงานร่วมกับ GRANT เสมอ)
 -- ----------------------------------------------------------------------------
 grant usage on schema public to anon, authenticated;
-grant all on public.users, public.materials, public.fixed_assets, public.requests to anon, authenticated;
+grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
@@ -145,6 +160,7 @@ alter table public.users enable row level security;
 alter table public.materials enable row level security;
 alter table public.fixed_assets enable row level security;
 alter table public.requests enable row level security;
+alter table public.material_stock_transactions enable row level security;
 
 -- users
 create policy "users_select_all" on public.users for select using (true);
@@ -169,6 +185,12 @@ create policy "requests_select_all" on public.requests for select using (true);
 create policy "requests_insert_all" on public.requests for insert with check (true);
 create policy "requests_update_all" on public.requests for update using (true) with check (true);
 create policy "requests_delete_all" on public.requests for delete using (true);
+
+-- material_stock_transactions
+create policy "stock_tx_select_all" on public.material_stock_transactions for select using (true);
+create policy "stock_tx_insert_all" on public.material_stock_transactions for insert with check (true);
+create policy "stock_tx_update_all" on public.material_stock_transactions for update using (true) with check (true);
+create policy "stock_tx_delete_all" on public.material_stock_transactions for delete using (true);
 
 -- ----------------------------------------------------------------------------
 -- 10) STORAGE: Bucket สำหรับรูปภาพ (ครุภัณฑ์ / วัสดุ / รูปโปรไฟล์)
