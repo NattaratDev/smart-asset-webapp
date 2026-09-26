@@ -204,14 +204,44 @@ const SESSION_KEY = 'smartasset_session';
 const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], charts: {} };
 
 const MENU_ITEMS = {
-  dashboard: { label: 'แดชบอร์ด', icon: 'layout-dashboard', roles: ['admin','staff','employee'] },
-  employees: { label: 'พนักงาน', icon: 'users', roles: ['admin'] },
-  materials: { label: 'วัสดุ', icon: 'package', roles: ['admin','staff','employee'] },
-  assets: { label: 'ครุภัณฑ์', icon: 'monitor', roles: ['admin','staff','employee'] },
-  requests: { label: 'คำร้อง', icon: 'clipboard-list', roles: ['admin','staff','employee'] },
-  profile: { label: 'โปรไฟล์', icon: 'user-circle', roles: ['admin','staff','employee'] },
+  dashboard: { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
+  materials: { label: 'วัสดุ', icon: 'package' },
+  assets: { label: 'ครุภัณฑ์', icon: 'monitor' },
+  requests: { label: 'คำร้อง', icon: 'clipboard-list' },
+  employees: { label: 'พนักงาน', icon: 'users' },
+  profile: { label: 'โปรไฟล์', icon: 'user-circle' },
+  settings: { label: 'ตั้งค่าระบบ', icon: 'settings' },
 };
-const BOTTOM_NAV_KEYS = ['dashboard','materials','assets','requests'];
+
+// โครงสร้างเมนูแยกตามสิทธิ์ - admin ย้าย "คำร้อง" ไปเป็นเมนูย่อยของ "วัสดุ" และเพิ่ม "ตั้งค่าระบบ"
+const ROLE_MENU = {
+  admin: [
+    { key:'dashboard' },
+    { key:'materials', children:[{key:'requests'}] },
+    { key:'assets' },
+    { key:'employees' },
+    { key:'profile' },
+    { key:'settings' },
+  ],
+  staff: [
+    { key:'dashboard' }, { key:'materials' }, { key:'assets' }, { key:'requests' }, { key:'profile' },
+  ],
+  employee: [
+    { key:'dashboard' }, { key:'materials' }, { key:'assets' }, { key:'requests' }, { key:'profile' },
+  ],
+};
+
+const ROLE_BOTTOM_NAV_KEYS = {
+  admin: ['dashboard','materials','assets','profile'],
+  staff: ['dashboard','materials','assets','requests'],
+  employee: ['dashboard','materials','assets','requests'],
+};
+
+function flatMenuKeys(role){
+  const out = [];
+  (ROLE_MENU[role]||[]).forEach(node=>{ out.push(node.key); (node.children||[]).forEach(c=>out.push(c.key)); });
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -460,11 +490,20 @@ function navBtnHtml(key, extraClass=''){
 }
 
 function buildSidebar(){
-  const items = Object.entries(MENU_ITEMS).filter(([k,v])=>v.roles.includes(state.user.role));
-  $('#sidebarNav').innerHTML = items.map(([key,item])=>`
-    <button data-view="${key}" onclick="navigate('${key}')" class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-500 hover:bg-sky-50 hover:text-sky-500 transition">
+  const nodes = ROLE_MENU[state.user.role] || [];
+  $('#sidebarNav').innerHTML = nodes.map(node=>{
+    const item = MENU_ITEMS[node.key];
+    const parentBtn = `<button data-view="${node.key}" onclick="navigate('${node.key}')" class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-500 hover:bg-sky-50 hover:text-sky-500 transition">
       <i data-lucide="${item.icon}" class="w-5 h-5"></i> ${item.label}
-    </button>`).join('');
+    </button>`;
+    const childrenBtns = (node.children||[]).map(c=>{
+      const citem = MENU_ITEMS[c.key];
+      return `<button data-view="${c.key}" onclick="navigate('${c.key}')" class="nav-btn flex items-center gap-3 w-full pl-11 pr-4 py-2 rounded-2xl text-[13px] font-medium text-slate-400 hover:bg-sky-50 hover:text-sky-500 transition">
+        <i data-lucide="${citem.icon}" class="w-4 h-4"></i> ${citem.label}
+      </button>`;
+    }).join('');
+    return parentBtn + childrenBtns;
+  }).join('');
   $('#sidebarUserName').textContent = state.user.full_name;
   $('#sidebarUserRole').textContent = roleLabel(state.user.role);
   $('#sidebarAvatar').innerHTML = state.user.avatar_url
@@ -479,7 +518,7 @@ function buildSidebar(){
 
 function buildBottomNav(){
   const isAdmin = state.user.role === 'admin';
-  const keys = BOTTOM_NAV_KEYS.filter(k=>MENU_ITEMS[k].roles.includes(state.user.role));
+  const keys = ROLE_BOTTOM_NAV_KEYS[state.user.role] || [];
   let html = keys.slice(0,2).map(k=>navBtnHtml(k)).join('');
   if(isAdmin){
     html += `<button onclick="toggleAdminPanel()" class="flex flex-col items-center justify-center -mt-6">
@@ -490,11 +529,16 @@ function buildBottomNav(){
   $('#bottomNav').innerHTML = html;
 
   if(isAdmin){
-    let grid = Object.entries(MENU_ITEMS).map(([key,item])=>`
-      <button onclick="navigate('${key}'); closeAdminPanel();" class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-50 hover:bg-sky-50">
-        <i data-lucide="${item.icon}" class="w-6 h-6 text-sky-400"></i>
-        <span class="text-xs text-slate-500">${item.label}</span>
-      </button>`).join('');
+    let grid = '';
+    (ROLE_MENU.admin||[]).forEach(node=>{
+      [node, ...(node.children||[])].forEach(n=>{
+        const item = MENU_ITEMS[n.key];
+        grid += `<button onclick="navigate('${n.key}'); closeAdminPanel();" class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-50 hover:bg-sky-50">
+          <i data-lucide="${item.icon}" class="w-6 h-6 text-sky-400"></i>
+          <span class="text-xs text-slate-500">${item.label}</span>
+        </button>`;
+      });
+    });
     grid += `<button onclick="openLogoutModal(); closeAdminPanel();" class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-rose-50 hover:bg-rose-100">
       <i data-lucide="log-out" class="w-6 h-6 text-rose-400"></i>
       <span class="text-xs text-rose-500">ออกจากระบบ</span>
@@ -521,12 +565,12 @@ function updateActiveNav(){
 
 function navigate(view){
   const item = MENU_ITEMS[view];
-  if(item && !item.roles.includes(state.user.role)){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); return; }
+  if(!flatMenuKeys(state.user.role).includes(view)){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); return; }
   state.currentView = view;
   closeAdminPanel();
   closeUserMenu();
   $('#pageTitle').textContent = item ? item.label : '';
-  const renderers = { dashboard: renderDashboard, employees: renderEmployees, materials: renderMaterials, assets: renderAssets, requests: renderRequests, profile: renderProfile };
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, materials: renderMaterials, assets: renderAssets, requests: renderRequests, profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
   window.scrollTo({top:0, behavior:'smooth'});
@@ -794,9 +838,17 @@ function deleteUser(id){
 // ---------------------------------------------------------------------------
 // Materials
 // ---------------------------------------------------------------------------
+function materialsSubTabsHtml(activeKey){
+  if(state.user.role !== 'admin') return '';
+  const tabs = [{key:'materials', label:'รายการวัสดุ'}, {key:'requests', label:'คำร้อง'}];
+  return `<div class="flex gap-2 mb-4">${tabs.map(t=>`
+    <button onclick="navigate('${t.key}')" class="px-4 py-2 rounded-2xl text-sm font-medium transition ${t.key===activeKey?'bg-gradient-to-r from-sky-300 to-pink-300 text-white shadow-soft':'bg-white text-slate-500 hover:bg-sky-50'}">${t.label}</button>`).join('')}</div>`;
+}
+
 function renderMaterials(){
   const canManage = state.user.role !== 'employee';
   $('#mainContent').innerHTML = `
+    ${materialsSubTabsHtml('materials')}
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="relative w-full sm:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
@@ -1100,6 +1152,7 @@ async function submitRequestForm(e){
 function renderRequests(){
   const isPriv = state.user.role !== 'employee';
   $('#mainContent').innerHTML = `
+    ${materialsSubTabsHtml('requests')}
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="relative w-full sm:w-72">
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
@@ -1201,6 +1254,51 @@ function renderProfile(){
     </div>
   `;
   lucide.createIcons();
+}
+
+// ---------------------------------------------------------------------------
+// Settings (admin only)
+// ---------------------------------------------------------------------------
+function renderSettings(){
+  const lowStock = state.materials.filter(m=>Number(m.quantity)<=Number(m.min_quantity)).length;
+  $('#mainContent').innerHTML = `
+    <div class="grid md:grid-cols-2 gap-5">
+      <div class="card">
+        <h3 class="font-semibold text-slate-600 mb-4 flex items-center gap-2"><i data-lucide="database" class="w-5 h-5 text-sky-400"></i>การเชื่อมต่อฐานข้อมูล</h3>
+        <div class="space-y-3 text-sm">
+          <div class="flex items-center justify-between"><span class="text-slate-400">สถานะ</span><span id="settingsDbStatus" class="badge bg-slate-100 text-slate-400">กำลังตรวจสอบ...</span></div>
+          <div class="flex items-center justify-between gap-3"><span class="text-slate-400 shrink-0">Supabase URL</span><span class="text-slate-600 truncate">${escapeHtml(SUPABASE_URL)}</span></div>
+          <div class="flex items-center justify-between"><span class="text-slate-400">Storage Bucket</span><span class="text-slate-600">${escapeHtml(SUPABASE_STORAGE_BUCKET)}</span></div>
+        </div>
+      </div>
+      <div class="card">
+        <h3 class="font-semibold text-slate-600 mb-4 flex items-center gap-2"><i data-lucide="info" class="w-5 h-5 text-pink-400"></i>ข้อมูลระบบ</h3>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <div><p class="text-slate-400 text-xs">ชื่อระบบ</p><p class="text-slate-600 font-medium">Smart Asset</p></div>
+          <div><p class="text-slate-400 text-xs">เวอร์ชัน</p><p class="text-slate-600 font-medium">1.0.0</p></div>
+          <div><p class="text-slate-400 text-xs">ผู้ใช้งานทั้งหมด</p><p class="text-slate-600 font-medium">${state.users.length} คน</p></div>
+          <div><p class="text-slate-400 text-xs">รายการวัสดุ</p><p class="text-slate-600 font-medium">${state.materials.length} รายการ (ใกล้หมด ${lowStock})</p></div>
+          <div><p class="text-slate-400 text-xs">ครุภัณฑ์</p><p class="text-slate-600 font-medium">${state.assets.length} รายการ</p></div>
+          <div><p class="text-slate-400 text-xs">คำร้องทั้งหมด</p><p class="text-slate-600 font-medium">${state.requests.length} รายการ</p></div>
+        </div>
+      </div>
+    </div>
+  `;
+  lucide.createIcons();
+  checkDbConnection();
+}
+
+async function checkDbConnection(){
+  try{
+    const { error } = await dbClient.from('users').select('id', { count:'exact', head:true });
+    const el = $('#settingsDbStatus');
+    if(!el) return;
+    if(error){ el.textContent = 'เชื่อมต่อไม่สำเร็จ'; el.className = 'badge bg-rose-100 text-rose-600'; }
+    else { el.textContent = 'เชื่อมต่อสำเร็จ'; el.className = 'badge bg-emerald-100 text-emerald-600'; }
+  }catch(e){
+    const el = $('#settingsDbStatus');
+    if(el){ el.textContent = 'เชื่อมต่อไม่สำเร็จ'; el.className = 'badge bg-rose-100 text-rose-600'; }
+  }
 }
 
 // ---------------------------------------------------------------------------
