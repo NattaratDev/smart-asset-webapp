@@ -74,8 +74,8 @@
 <div id="landingPage">
   <header class="max-w-6xl mx-auto flex items-center justify-between px-5 py-5">
     <div class="flex items-center gap-2">
-      <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center"><i data-lucide="box" class="w-5 h-5 text-white"></i></div>
-      <span class="font-semibold text-slate-700">Smart Asset</span>
+      <div class="brand-logo w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center overflow-hidden shrink-0"><i data-lucide="box" class="w-5 h-5 text-white"></i></div>
+      <div class="leading-tight"><span class="font-semibold text-slate-700">Smart Asset</span><p id="landingOrgName" class="text-[11px] text-slate-400"></p></div>
     </div>
     <button onclick="showLoginPage()" class="btn-primary gap-2"><i data-lucide="log-in" class="w-4 h-4"></i>เข้าสู่ระบบ</button>
   </header>
@@ -104,7 +104,7 @@
     <div class="card"><i data-lucide="clipboard-check" class="w-6 h-6 text-amber-400 mb-2"></i><h4 class="font-semibold text-slate-600 mb-1">คำร้องออนไลน์</h4><p class="text-sm text-slate-400">เบิกวัสดุ ยืมครุภัณฑ์ แจ้งซ่อม พร้อมระบบอนุมัติ</p></div>
   </section>
 
-  <footer class="text-center text-xs text-slate-400 pb-8">© 2026 Smart Asset · ระบบสาธิตเพื่อการศึกษา</footer>
+  <footer id="landingFooter" class="text-center text-xs text-slate-400 pb-8">© 2026 Smart Asset · ระบบสาธิตเพื่อการศึกษา</footer>
 </div>
 
 <!-- ============ Login Page ============ -->
@@ -112,8 +112,9 @@
   <div class="card w-full max-w-sm relative">
     <button onclick="showLanding()" class="absolute -top-3 -left-3 w-9 h-9 rounded-full bg-white shadow-soft flex items-center justify-center text-slate-400"><i data-lucide="arrow-left" class="w-4 h-4"></i></button>
     <div class="text-center mb-6">
-      <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center mx-auto mb-3"><i data-lucide="box" class="w-7 h-7 text-white"></i></div>
+      <div class="brand-logo w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center overflow-hidden mx-auto mb-3"><i data-lucide="box" class="w-7 h-7 text-white"></i></div>
       <h2 class="font-semibold text-slate-700 text-lg">เข้าสู่ระบบ</h2>
+      <p id="loginOrgName" class="text-sm font-medium text-slate-600"></p>
       <p class="text-xs text-slate-400">Smart Asset - ระบบบันทึกข้อมูลสินทรัพย์</p>
     </div>
     <form id="loginForm" class="space-y-4">
@@ -143,10 +144,10 @@
 <div id="appShell" class="hidden">
   <aside class="hidden md:flex md:flex-col fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-md border-r border-slate-100 px-4 py-6 z-30">
     <div class="flex items-center gap-2 px-2 mb-8">
-      <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center"><i data-lucide="box" class="w-5 h-5 text-white"></i></div>
+      <div class="brand-logo w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center overflow-hidden shrink-0"><i data-lucide="box" class="w-5 h-5 text-white"></i></div>
       <div>
         <p class="font-semibold text-slate-700 leading-tight">Smart Asset</p>
-        <p class="text-[11px] text-slate-400">ระบบจัดการสินทรัพย์</p>
+        <p id="sidebarOrgName" class="text-[11px] text-slate-400 truncate max-w-[9.5rem]">ระบบจัดการสินทรัพย์</p>
       </div>
     </div>
     <nav id="sidebarNav" class="flex flex-col gap-1 flex-1 overflow-y-auto"></nav>
@@ -219,7 +220,7 @@ const dbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 Chart.defaults.font.family = 'Kanit';
 
 const SESSION_KEY = 'smartasset_session';
-const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], charts: {} };
+const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], settings: {}, charts: {} };
 
 const MENU_ITEMS = {
   dashboard:   { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
@@ -545,6 +546,52 @@ async function loadLandingStats(){
       });
     }
   }catch(err){ console.error(err); }
+}
+
+const DEFAULT_ORG_NAME = 'ชื่อหน่วยงาน';
+
+function orgInfo(){
+  const st = state.settings || {};
+  const name = (st.org_name || '').trim();
+  return { name: name || DEFAULT_ORG_NAME, configured: !!name && name !== DEFAULT_ORG_NAME, address: (st.org_address||'').trim(), phone: (st.org_phone||'').trim(), logo: (st.org_logo_url||'').trim() };
+}
+
+async function loadSettings(){
+  try{
+    const { data, error } = await dbClient.from('app_settings').select('key,value');
+    if(!error && data) state.settings = Object.fromEntries(data.map(r=>[r.key, r.value]));
+  }catch(e){ console.error(e); }
+  applyBranding();
+}
+
+function applyBranding(){
+  const o = orgInfo();
+  document.title = o.configured ? `Smart Asset - ${o.name}` : 'Smart Asset - ระบบบันทึกข้อมูลสินทรัพย์';
+  const set = (id, text) => { const el = document.getElementById(id); if(el) el.textContent = text; };
+  set('sidebarOrgName', o.configured ? o.name : 'ระบบจัดการสินทรัพย์');
+  set('landingOrgName', o.configured ? o.name : '');
+  set('loginOrgName', o.configured ? o.name : '');
+  set('landingFooter', `© ${new Date().getFullYear()} Smart Asset · ${o.configured ? o.name : 'ระบบสาธิตเพื่อการศึกษา'}`);
+  document.querySelectorAll('.brand-logo').forEach(el=>{
+    if(el.dataset.def === undefined) el.dataset.def = el.innerHTML;
+    el.innerHTML = o.logo ? `<img src="${escapeHtml(o.logo)}" onerror="imageFallback(this)" class="w-full h-full object-contain p-0.5 bg-white">` : el.dataset.def;
+  });
+  lucide.createIcons();
+}
+
+function orgHeaderHtml(){
+  const o = orgInfo();
+  const sub = [o.address, o.phone ? 'โทร. '+o.phone : ''].filter(Boolean).join(' · ');
+  return `<div style="display:flex;align-items:center;justify-content:center;gap:4mm">${o.logo ? `<img src="${escapeHtml(o.logo)}" style="height:16mm;width:auto;object-fit:contain">` : ''}<div style="text-align:center"><div style="font-size:16px;font-weight:600">${escapeHtml(o.name)}</div>${sub ? `<div style="font-size:11px;color:#444">${escapeHtml(sub)}</div>` : ''}</div></div>`;
+}
+
+async function printArea(){
+  const imgs = [...document.querySelectorAll('#printArea img')];
+  await Promise.race([
+    Promise.all(imgs.map(i=> i.complete ? null : new Promise(r=>{ i.onload = i.onerror = r; }))),
+    new Promise(r=>setTimeout(r, 3000)),
+  ]);
+  window.print();
 }
 
 async function fetchAll(){
@@ -1862,7 +1909,6 @@ function formatThaiLongDate(d){
 }
 
 function issueFormHtml(r){
-  const orgName = (typeof ORG_NAME !== 'undefined' && ORG_NAME) ? ORG_NAME : 'ชื่อหน่วยงาน';
   const requester = state.users.find(u=>u.id===r.requester_id);
   const approved = r.status === 'อนุมัติ';
   const approverName = approved && r.approved_by ? getUserName(r.approved_by) : '';
@@ -1887,7 +1933,7 @@ function issueFormHtml(r){
     </div>`;
   return `<div class="a4-sheet">
     <div style="text-align:center">
-      <div style="font-size:16px;font-weight:600">${escapeHtml(orgName)}</div>
+      ${orgHeaderHtml()}
       <div style="font-size:20px;font-weight:700;margin-top:2mm">ใบเบิกวัสดุ</div>
     </div>
     <div style="display:flex;justify-content:space-between;margin-top:6mm">
@@ -1926,7 +1972,7 @@ function printIssueForm(id){
   const r = state.issueRequests.find(x=>x.id===id);
   if(!r) return;
   $('#printArea').innerHTML = issueFormHtml(r);
-  window.print();
+  printArea();
 }
 
 function refreshIssueView(){
@@ -2195,7 +2241,6 @@ function updateStockCardView(materialId){
 }
 
 function stockCardFormHtml(d){
-  const orgName = (typeof ORG_NAME !== 'undefined' && ORG_NAME) ? ORG_NAME : 'ชื่อหน่วยงาน';
   const m = d.mat;
   const rows = d.rows.map(r=>`<tr>
     <td style="white-space:nowrap">${formatThaiLongDate(r.tx.created_at)}</td>
@@ -2207,7 +2252,7 @@ function stockCardFormHtml(d){
   </tr>`).join('');
   return `<div class="a4-sheet">
     <div style="text-align:center">
-      <div style="font-size:16px;font-weight:600">${escapeHtml(orgName)}</div>
+      ${orgHeaderHtml()}
       <div style="font-size:20px;font-weight:700;margin-top:2mm">บัตรควบคุมวัสดุ (Stock Card)</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:1mm 8mm;margin-top:6mm">
@@ -2239,7 +2284,7 @@ function stockCardFormHtml(d){
 function printStockCard(materialId){
   const d = stockCardData(materialId, $('#sc_month')?.value || '');
   $('#printArea').innerHTML = stockCardFormHtml(d);
-  window.print();
+  printArea();
 }
 
 // ---------------------------------------------------------------------------
@@ -2334,14 +2379,13 @@ function reportTableHtml(cfg){
 }
 
 function reportSheetHtml(cfg){
-  const orgName = (typeof ORG_NAME !== 'undefined' && ORG_NAME) ? ORG_NAME : 'ชื่อหน่วยงาน';
   const al = a => a==='right' ? 'text-align:right' : a==='center' ? 'text-align:center' : '';
   const th = cfg.headers.map(h=>`<th style="${h.w?`width:${h.w};`:''}">${h.label}</th>`).join('');
   const rows = cfg.rows.map(r=>`<tr>${r.map((c,i)=>`<td style="${al(cfg.headers[i].align)}">${escapeHtml(c)}</td>`).join('')}</tr>`).join('');
   const foot = cfg.rows.length ? `<tr>${cfg.footer.map((c,i)=>`<td style="${al(cfg.headers[i].align)};font-weight:600">${escapeHtml(c)}</td>`).join('')}</tr>` : '';
   return `<div class="a4-sheet">
     <div style="text-align:center">
-      <div style="font-size:16px;font-weight:600">${escapeHtml(orgName)}</div>
+      ${orgHeaderHtml()}
       <div style="font-size:20px;font-weight:700;margin-top:2mm">${escapeHtml(cfg.title)}</div>
     </div>
     <div style="margin-top:5mm">${cfg.meta.map(([k,v])=>`${k} <b>${escapeHtml(v)}</b>`).join('&emsp;&emsp;')}</div>
@@ -2403,7 +2447,7 @@ function updateReportView(kind){
 
 function printReport(kind){
   $('#printArea').innerHTML = reportSheetHtml(buildReportCfg(kind));
-  window.print();
+  printArea();
 }
 
 function exportReportCSV(kind){
@@ -2441,7 +2485,32 @@ function renderProfile(){
 // ---------------------------------------------------------------------------
 function renderSettings(){
   const lowStock = state.materials.filter(m=>Number(m.quantity)<=Number(m.min_quantity)).length;
+  const org = orgInfo();
   $('#mainContent').innerHTML = `
+    <div class="card mb-5">
+      <h3 class="font-semibold text-slate-600 mb-1 flex items-center gap-2"><i data-lucide="building-2" class="w-5 h-5 text-violet-400"></i>ข้อมูลหน่วยงาน</h3>
+      <p class="text-xs text-slate-400 mb-4">ชื่อและข้อมูลนี้จะแสดงบนหัวเอกสารที่พิมพ์ (ใบเบิกวัสดุ, Stock Card, รายงาน) หน้าแรก หน้าเข้าสู่ระบบ และแถบเมนู</p>
+      <form id="orgForm" class="grid md:grid-cols-2 gap-4">
+        <div class="md:col-span-2"><label class="text-sm text-slate-500">ชื่อหน่วยงาน *</label><input id="set_org_name" required value="${escapeHtml(org.configured ? org.name : '')}" placeholder="เช่น โรงเรียนตัวอย่างวิทยา" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ที่อยู่</label><textarea id="set_org_address" rows="2" class="input-field">${escapeHtml(org.address)}</textarea></div>
+        <div><label class="text-sm text-slate-500">เบอร์โทรศัพท์</label><input id="set_org_phone" value="${escapeHtml(org.phone)}" class="input-field"></div>
+        <div class="md:col-span-2">
+          <label class="text-sm text-slate-500">โลโก้หน่วยงาน (อัปโหลดรูป)</label>
+          <div class="flex items-center gap-3 mt-1">
+            <div id="orgLogoPreview" class="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${org.logo ? `<img src="${escapeHtml(org.logo)}" onerror="imageFallback(this)" class="w-full h-full object-contain">` : `<i data-lucide="image" class="w-6 h-6 text-slate-300"></i>`}</div>
+            <div class="text-xs">
+              <input type="file" id="set_org_logo" accept="image/*" onchange="previewFile(this,'orgLogoPreview')">
+              ${org.logo ? `<label class="flex items-center gap-2 mt-2 text-slate-500"><input type="checkbox" id="set_org_logo_remove" class="w-4 h-4 rounded">ลบโลโก้ปัจจุบัน</label>` : ''}
+            </div>
+          </div>
+        </div>
+        <div class="md:col-span-2 flex justify-end"><button type="submit" class="btn-primary gap-2"><i data-lucide="save" class="w-4 h-4"></i>บันทึกข้อมูลหน่วยงาน</button></div>
+      </form>
+      <div class="mt-4 border-t border-slate-100 pt-4">
+        <p class="text-xs text-slate-400 mb-2">ตัวอย่างหัวเอกสาร</p>
+        <div id="orgHeaderPreview" class="bg-white border border-slate-100 rounded-2xl p-4">${orgHeaderHtml()}</div>
+      </div>
+    </div>
     <div class="grid md:grid-cols-2 gap-5">
       <div class="card">
         <h3 class="font-semibold text-slate-600 mb-4 flex items-center gap-2"><i data-lucide="database" class="w-5 h-5 text-sky-400"></i>การเชื่อมต่อฐานข้อมูล</h3>
@@ -2465,7 +2534,34 @@ function renderSettings(){
     </div>
   `;
   lucide.createIcons();
+  $('#orgForm').onsubmit = saveOrgSettings;
   checkDbConnection();
+}
+
+async function saveOrgSettings(e){
+  e.preventDefault();
+  const name = $('#set_org_name').value.trim();
+  if(!name){ showToast('กรุณากรอกชื่อหน่วยงาน','error'); return; }
+  showLoader();
+  try{
+    let logo = (state.settings.org_logo_url || '');
+    if($('#set_org_logo_remove')?.checked) logo = '';
+    const file = $('#set_org_logo').files[0];
+    if(file) logo = await uploadImage(file, 'org');
+    const rows = [
+      { key:'org_name', value:name },
+      { key:'org_address', value:$('#set_org_address').value.trim() },
+      { key:'org_phone', value:$('#set_org_phone').value.trim() },
+      { key:'org_logo_url', value:logo },
+    ];
+    const { error } = await dbClient.from('app_settings').upsert(rows, { onConflict:'key' });
+    if(error) throw error;
+    state.settings = { ...state.settings, ...Object.fromEntries(rows.map(r=>[r.key, r.value])) };
+    applyBranding();
+    renderSettings();
+    showToast('บันทึกข้อมูลหน่วยงานสำเร็จ','success');
+  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
 }
 
 async function checkDbConnection(){
@@ -2507,6 +2603,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('#confirmModal').addEventListener('click', e => { if(e.target.id === 'confirmModal') closeConfirm(); });
   document.addEventListener('click', e => { if(!e.target.closest('#userMenuWrap')) closeUserMenu(); });
 
+  await loadSettings();
   if(restoreSession()){
     await fetchAll();
     enterApp();

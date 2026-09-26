@@ -143,6 +143,15 @@ create table public.material_stock_transactions (
 );
 
 -- ----------------------------------------------------------------------------
+-- 5d) TABLE: app_settings (ตั้งค่าระบบ เช่น ข้อมูลหน่วยงาน - key/value)
+-- ----------------------------------------------------------------------------
+create table public.app_settings (
+  key         text primary key,
+  value       text,
+  updated_at  timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
 -- 6) INDEXES
 -- ----------------------------------------------------------------------------
 create index idx_materials_category on public.materials(category);
@@ -178,12 +187,14 @@ create trigger trg_requests_updated_at before update on public.requests
   for each row execute function public.set_updated_at();
 create trigger trg_issue_requests_updated_at before update on public.material_issue_requests
   for each row execute function public.set_updated_at();
+create trigger trg_app_settings_updated_at before update on public.app_settings
+  for each row execute function public.set_updated_at();
 
 -- ----------------------------------------------------------------------------
 -- 8) GRANTS - ให้สิทธิ์ anon/authenticated เข้าถึงตาราง (RLS ทำงานร่วมกับ GRANT เสมอ)
 -- ----------------------------------------------------------------------------
 grant usage on schema public to anon, authenticated;
-grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items to anon, authenticated;
+grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items, public.app_settings to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
@@ -196,6 +207,7 @@ alter table public.requests enable row level security;
 alter table public.material_stock_transactions enable row level security;
 alter table public.material_issue_requests enable row level security;
 alter table public.material_issue_items enable row level security;
+alter table public.app_settings enable row level security;
 
 -- users
 create policy "users_select_all" on public.users for select using (true);
@@ -238,6 +250,12 @@ create policy "issue_items_select_all" on public.material_issue_items for select
 create policy "issue_items_insert_all" on public.material_issue_items for insert with check (true);
 create policy "issue_items_update_all" on public.material_issue_items for update using (true) with check (true);
 create policy "issue_items_delete_all" on public.material_issue_items for delete using (true);
+
+-- app_settings
+create policy "app_settings_select_all" on public.app_settings for select using (true);
+create policy "app_settings_insert_all" on public.app_settings for insert with check (true);
+create policy "app_settings_update_all" on public.app_settings for update using (true) with check (true);
+create policy "app_settings_delete_all" on public.app_settings for delete using (true);
 
 -- ----------------------------------------------------------------------------
 -- 10) STORAGE: Bucket สำหรับรูปภาพ (ครุภัณฑ์ / วัสดุ / รูปโปรไฟล์)
@@ -304,6 +322,13 @@ from public.users u1 where u1.username='staff'
 union all
 select 'AST-005','เก้าอี้สำนักงาน','เฟอร์นิเจอร์','Ergotrend ERGO-01','SN-ERG010005','2021-05-05'::date,3200::numeric,'ชำรุด','ห้องธุรการ ชั้น 2', null,'เก้าอี้สำนักงานพนักพิงสูง', u1.id
 from public.users u1 where u1.username='staff';
+
+-- ข้อมูลหน่วยงานเริ่มต้น (แก้ไขได้ที่เมนู ตั้งค่าระบบ)
+insert into public.app_settings (key, value) values
+  ('org_name', 'ชื่อหน่วยงาน'),
+  ('org_address', ''),
+  ('org_phone', ''),
+  ('org_logo_url', '');
 
 -- ใบเบิกวัสดุตัวอย่าง (เบิกได้หลายรายการต่อ 1 ใบเบิก)
 with seed_issue as (
