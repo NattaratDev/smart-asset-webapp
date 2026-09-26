@@ -13,8 +13,15 @@ create extension if not exists pgcrypto;
 -- ----------------------------------------------------------------------------
 -- 1) DROP (ถ้ามีของเดิม) - ลบตามลำดับ dependency
 -- ----------------------------------------------------------------------------
+drop table if exists public.app_settings cascade;
+drop table if exists public.asset_loans cascade;
+drop table if exists public.asset_repairs cascade;
+drop table if exists public.material_stock_transactions cascade;
+drop table if exists public.material_issue_items cascade;
+drop table if exists public.material_issue_requests cascade;
 drop table if exists public.requests cascade;
 drop table if exists public.fixed_assets cascade;
+drop table if exists public.asset_receipts cascade;
 drop table if exists public.materials cascade;
 drop table if exists public.users cascade;
 
@@ -64,6 +71,17 @@ comment on column public.materials.category is 'หมวดหมู่ตา�
 -- ----------------------------------------------------------------------------
 -- 4) TABLE: fixed_assets (ครุภัณฑ์)
 -- ----------------------------------------------------------------------------
+create table public.asset_receipts (
+  id            uuid primary key default gen_random_uuid(),
+  receipt_code  text unique not null,
+  receive_date  date not null default current_date,
+  supplier      text,
+  doc_ref       text,
+  note          text,
+  received_by   uuid references public.users(id) on delete set null,
+  created_at    timestamptz not null default now()
+);
+
 create table public.fixed_assets (
   id                  uuid primary key default gen_random_uuid(),
   asset_code          text unique,
@@ -78,6 +96,7 @@ create table public.fixed_assets (
   responsible_user_id uuid references public.users(id) on delete set null,
   image_url           text,
   description         text,
+  receipt_id          uuid references public.asset_receipts(id) on delete set null,
   created_by          uuid references public.users(id) on delete set null,
   created_at          timestamptz not null default now(),
   updated_at          timestamptz not null default now()
@@ -143,6 +162,44 @@ create table public.material_stock_transactions (
 );
 
 -- ----------------------------------------------------------------------------
+-- 5e) TABLE: asset_repairs (ซ่อมบำรุงครุภัณฑ์) / asset_loans (ยืม-คืนครุภัณฑ์)
+-- ----------------------------------------------------------------------------
+create table public.asset_repairs (
+  id            uuid primary key default gen_random_uuid(),
+  repair_code   text unique not null,
+  asset_id      uuid not null references public.fixed_assets(id) on delete cascade,
+  reported_by   uuid not null references public.users(id) on delete cascade,
+  problem       text not null,
+  status        text not null default 'แจ้งซ่อม' check (status in ('แจ้งซ่อม','กำลังซ่อม','ซ่อมเสร็จ','ซ่อมไม่ได้','ยกเลิก')),
+  vendor        text,
+  started_at    timestamptz,
+  completed_at  timestamptz,
+  cost          numeric check (cost is null or cost >= 0),
+  result_note   text,
+  handled_by    uuid references public.users(id) on delete set null,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create table public.asset_loans (
+  id               uuid primary key default gen_random_uuid(),
+  loan_code        text unique not null,
+  asset_id         uuid not null references public.fixed_assets(id) on delete cascade,
+  borrower_id      uuid not null references public.users(id) on delete cascade,
+  due_date         date not null,
+  purpose          text,
+  status           text not null default 'รออนุมัติ' check (status in ('รออนุมัติ','ยืมอยู่','คืนแล้ว','ไม่อนุมัติ','ยกเลิก')),
+  approved_by      uuid references public.users(id) on delete set null,
+  approved_at      timestamptz,
+  returned_at      timestamptz,
+  return_condition text,
+  return_note      text,
+  received_by      uuid references public.users(id) on delete set null,
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
 -- 5d) TABLE: app_settings (ตั้งค่าระบบ เช่น ข้อมูลหน่วยงาน - key/value)
 -- ----------------------------------------------------------------------------
 create table public.app_settings (
@@ -162,6 +219,9 @@ create index idx_requests_status on public.requests(status);
 create index idx_issue_items_request on public.material_issue_items(issue_request_id);
 create index idx_issue_requests_requester on public.material_issue_requests(requester_id);
 create index idx_issue_requests_status on public.material_issue_requests(status);
+create index idx_asset_repairs_asset on public.asset_repairs(asset_id);
+create index idx_asset_loans_asset on public.asset_loans(asset_id);
+create index idx_asset_loans_borrower on public.asset_loans(borrower_id);
 create index idx_stock_tx_material on public.material_stock_transactions(material_id);
 
 -- ----------------------------------------------------------------------------
@@ -187,6 +247,10 @@ create trigger trg_requests_updated_at before update on public.requests
   for each row execute function public.set_updated_at();
 create trigger trg_issue_requests_updated_at before update on public.material_issue_requests
   for each row execute function public.set_updated_at();
+create trigger trg_asset_repairs_updated_at before update on public.asset_repairs
+  for each row execute function public.set_updated_at();
+create trigger trg_asset_loans_updated_at before update on public.asset_loans
+  for each row execute function public.set_updated_at();
 create trigger trg_app_settings_updated_at before update on public.app_settings
   for each row execute function public.set_updated_at();
 
@@ -194,7 +258,7 @@ create trigger trg_app_settings_updated_at before update on public.app_settings
 -- 8) GRANTS - ให้สิทธิ์ anon/authenticated เข้าถึงตาราง (RLS ทำงานร่วมกับ GRANT เสมอ)
 -- ----------------------------------------------------------------------------
 grant usage on schema public to anon, authenticated;
-grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items, public.app_settings to anon, authenticated;
+grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items, public.app_settings, public.asset_receipts, public.asset_repairs, public.asset_loans to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
@@ -208,6 +272,9 @@ alter table public.material_stock_transactions enable row level security;
 alter table public.material_issue_requests enable row level security;
 alter table public.material_issue_items enable row level security;
 alter table public.app_settings enable row level security;
+alter table public.asset_receipts enable row level security;
+alter table public.asset_repairs enable row level security;
+alter table public.asset_loans enable row level security;
 
 -- users
 create policy "users_select_all" on public.users for select using (true);
@@ -250,6 +317,20 @@ create policy "issue_items_select_all" on public.material_issue_items for select
 create policy "issue_items_insert_all" on public.material_issue_items for insert with check (true);
 create policy "issue_items_update_all" on public.material_issue_items for update using (true) with check (true);
 create policy "issue_items_delete_all" on public.material_issue_items for delete using (true);
+
+-- asset_receipts / asset_repairs / asset_loans
+create policy "asset_receipts_select_all" on public.asset_receipts for select using (true);
+create policy "asset_receipts_insert_all" on public.asset_receipts for insert with check (true);
+create policy "asset_receipts_update_all" on public.asset_receipts for update using (true) with check (true);
+create policy "asset_receipts_delete_all" on public.asset_receipts for delete using (true);
+create policy "asset_repairs_select_all" on public.asset_repairs for select using (true);
+create policy "asset_repairs_insert_all" on public.asset_repairs for insert with check (true);
+create policy "asset_repairs_update_all" on public.asset_repairs for update using (true) with check (true);
+create policy "asset_repairs_delete_all" on public.asset_repairs for delete using (true);
+create policy "asset_loans_select_all" on public.asset_loans for select using (true);
+create policy "asset_loans_insert_all" on public.asset_loans for insert with check (true);
+create policy "asset_loans_update_all" on public.asset_loans for update using (true) with check (true);
+create policy "asset_loans_delete_all" on public.asset_loans for delete using (true);
 
 -- app_settings
 create policy "app_settings_select_all" on public.app_settings for select using (true);
@@ -342,8 +423,9 @@ select seed_issue.id, m.id, 5 from seed_issue, public.materials m where m.item_c
 union all
 select seed_issue.id, m.id, 10 from seed_issue, public.materials m where m.item_code='MAT-002';
 
-insert into public.requests (request_code, requester_id, request_type, fixed_asset_id, quantity, reason, status, approved_by, approved_at, approver_note)
-select 'REQ-0002', u.id, 'แจ้งซ่อม', a.id, 1, 'เครื่องเปิดไม่ติด แบตเตอรี่เสื่อม', 'อนุมัติ', s.id, now(), 'อนุมัติให้ส่งซ่อมที่ศูนย์บริการ'
+-- งานซ่อมตัวอย่าง (โน้ตบุ๊ก AST-003 กำลังซ่อม)
+insert into public.asset_repairs (repair_code, asset_id, reported_by, problem, status, vendor, handled_by, started_at)
+select 'RP-2569-0001', a.id, u.id, 'เครื่องเปิดไม่ติด แบตเตอรี่เสื่อม', 'กำลังซ่อม', 'ศูนย์บริการ Lenovo', s.id, now()
 from public.users u, public.fixed_assets a, public.users s
 where u.username='wichai' and a.asset_code='AST-003' and s.username='staff';
 
