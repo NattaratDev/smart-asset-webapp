@@ -1236,6 +1236,23 @@ function deleteMaterial(id){
 // ครุภัณฑ์: ทะเบียน / รับครุภัณฑ์ / ซ่อมบำรุง / ยืม-คืน
 // ---------------------------------------------------------------------------
 const ASSET_STATUSES = ['ใช้งานปกติ','ชำรุด','ซ่อมบำรุง','จำหน่ายแล้ว'];
+const ASSET_CATEGORIES = [
+  'ครุภัณฑ์สำนักงาน','ครุภัณฑ์ยานพาหนะและขนส่ง','ครุภัณฑ์ไฟฟ้าและวิทยุ','ครุภัณฑ์โฆษณาและเผยแพร่',
+  'ครุภัณฑ์การเกษตร','ครุภัณฑ์โรงงาน','ครุภัณฑ์ก่อสร้าง','ครุภัณฑ์สำรวจ','ครุภัณฑ์วิทยาศาสตร์',
+  'ครุภัณฑ์คอมพิวเตอร์','ครุภัณฑ์การศึกษา','ครุภัณฑ์งานบ้านงานครัว','ครุภัณฑ์สนาม','ครุภัณฑ์อื่น',
+];
+// fixed list plus any legacy value still stored on an asset (so old data is never hidden)
+function assetCategoryOptions(extra){
+  const list = ASSET_CATEGORIES.slice();
+  const add = c => { if(c && !list.includes(c)) list.push(c); };
+  add(extra);
+  return list;
+}
+function assetCategoriesInUse(){
+  const list = ASSET_CATEGORIES.slice();
+  state.assets.forEach(a=>{ if(a.category && !list.includes(a.category)) list.push(a.category); });
+  return list;
+}
 
 function nextSeqCodes(prefix, existing, count=1){
   let max = 0;
@@ -1289,9 +1306,13 @@ function renderAssets(){
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
         <input id="assetSearch" oninput="renderAssetGrid()" placeholder="ค้นหาครุภัณฑ์..." class="input-field pl-9">
       </div>
-      <select id="assetStatusFilter" onchange="renderAssetGrid()" class="input-field w-full sm:w-44">
+      <select id="assetStatusFilter" onchange="renderAssetGrid()" class="input-field w-full sm:w-40">
         <option value="">ทุกสถานะ</option>
         ${ASSET_STATUSES.map(s=>`<option>${s}</option>`).join('')}
+      </select>
+      <select id="assetCategoryFilter" onchange="renderAssetGrid()" class="input-field w-full sm:w-64">
+        <option value="">ทุกประเภท</option>
+        ${assetCategoriesInUse().map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
       </select>
     </div>
     <p class="text-xs text-slate-400 mb-4">${canManage?'เพิ่มครุภัณฑ์ใหม่ที่เมนู "รับครุภัณฑ์" · ':''}ยืม-คืนและแจ้งซ่อมได้จากการ์ดแต่ละรายการ</p>
@@ -1304,8 +1325,9 @@ function renderAssets(){
 function renderAssetGrid(){
   const q = ($('#assetSearch')?.value||'').toLowerCase();
   const st = $('#assetStatusFilter')?.value || '';
+  const cat = $('#assetCategoryFilter')?.value || '';
   const canManage = state.user.role !== 'employee';
-  const list = state.assets.filter(a=>(!st || a.status===st) && (!q || a.name.toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.asset_code||'').toLowerCase().includes(q)));
+  const list = state.assets.filter(a=>(!st || a.status===st) && (!cat || a.category===cat) && (!q || a.name.toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.asset_code||'').toLowerCase().includes(q)));
   $('#assetGrid').innerHTML = list.map(a=>{
     const loan = activeLoanOf(a.id);
     const canLoan = isAssetLendable(a);
@@ -1315,7 +1337,7 @@ function renderAssetGrid(){
       <div class="w-full h-28 rounded-2xl overflow-hidden bg-slate-100 mb-3 flex items-center justify-center">${a.image_url?`<img src="${escapeHtml(a.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="monitor" class="w-8 h-8 text-slate-300"></i>`}</div>
       <p class="text-xs text-slate-400">${escapeHtml(a.asset_code||'-')}</p>
       <p class="font-medium text-slate-700 truncate" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</p>
-      <p class="text-xs text-slate-400 mb-2 truncate">${escapeHtml(a.category||'ไม่ระบุหมวดหมู่')} · ${escapeHtml(a.location||'-')}</p>
+      <p class="text-xs text-slate-400 mb-2 truncate" title="${escapeHtml(a.category||'')}">${escapeHtml(a.category||'ไม่ระบุประเภท')} · ${escapeHtml(a.location||'-')}</p>
       <div class="mb-3 flex gap-1 flex-wrap">${statusBadge(a.status)}${loan?`<span class="badge bg-violet-100 text-violet-600">ถูกยืมอยู่</span>`:''}</div>
       <div class="flex gap-2 flex-wrap">
         ${btn(canLoan, `openLoanRequestModal('${a.id}')`, 'hand', 'ยืม')}
@@ -1344,7 +1366,7 @@ function openAssetModal(id){
       <div class="grid grid-cols-2 gap-3">
         <div><label class="text-sm text-slate-500">รหัสครุภัณฑ์</label><input id="f_asset_code" value="${escapeHtml(record.asset_code||'')}" readonly class="input-field opacity-70 cursor-not-allowed"></div>
         <div><label class="text-sm text-slate-500">ชื่อครุภัณฑ์ *</label><input id="f_name" required value="${escapeHtml(record.name||'')}" class="input-field"></div>
-        <div><label class="text-sm text-slate-500">หมวดหมู่</label><input id="f_category" value="${escapeHtml(record.category||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ประเภทครุภัณฑ์</label><select id="f_category" class="input-field"><option value="">- ไม่ระบุ -</option>${assetCategoryOptions(record.category).map(c=>`<option value="${escapeHtml(c)}" ${record.category===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select></div>
         <div><label class="text-sm text-slate-500">ยี่ห้อ/รุ่น</label><input id="f_brand_model" value="${escapeHtml(record.brand_model||'')}" class="input-field"></div>
         <div><label class="text-sm text-slate-500">Serial Number</label><input id="f_serial_number" value="${escapeHtml(record.serial_number||'')}" class="input-field"></div>
         <div><label class="text-sm text-slate-500">วันที่ได้มา</label><input id="f_purchase_date" type="date" value="${record.purchase_date||''}" class="input-field"></div>
@@ -1421,14 +1443,13 @@ let assetReceiveCart = [];
 
 function renderAssetReceive(){
   assetReceiveCart = [];
-  const cats = [...new Set(state.assets.map(a=>a.category).filter(Boolean))];
   $('#mainContent').innerHTML = `
     <div class="grid lg:grid-cols-3 gap-5 mb-5">
       <div class="card lg:col-span-1 h-fit">
         <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="package-plus" class="w-5 h-5 text-emerald-400"></i>เพิ่มครุภัณฑ์ที่รับ</h3>
         <form id="arItemForm" class="space-y-3">
           <div><label class="text-sm text-slate-500">ชื่อครุภัณฑ์ *</label><input id="ar_name" required class="input-field"></div>
-          <div><label class="text-sm text-slate-500">หมวดหมู่</label><input id="ar_category" list="arCats" class="input-field"><datalist id="arCats">${cats.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist></div>
+          <div><label class="text-sm text-slate-500">ประเภทครุภัณฑ์ *</label><select id="ar_category" required class="input-field"><option value="">- เลือกประเภท -</option>${ASSET_CATEGORIES.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}</select></div>
           <div class="grid grid-cols-2 gap-3">
             <div><label class="text-sm text-slate-500">ยี่ห้อ/รุ่น</label><input id="ar_brand" class="input-field"></div>
             <div><label class="text-sm text-slate-500">Serial Number</label><input id="ar_serial" class="input-field"></div>
@@ -2867,7 +2888,7 @@ function buildAssetReportCfg(kind){
     });
     return {
       title: REPORT_TITLES.assetReg,
-      meta: [['สถานะ', st.status || 'ทั้งหมด'], ['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
+      meta: [['สถานะ', st.status || 'ทั้งหมด'], ['ประเภท', st.category || 'ทุกประเภท']],
       headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'รหัส',w:'24mm'},{label:'รายการ'},{label:'ยี่ห้อ/รุ่น',w:'26mm'},{label:'Serial',w:'22mm'},{label:'วันที่ได้มา',w:'20mm'},{label:'ราคา',align:'right',w:'20mm'},{label:'สถานที่',w:'22mm'},{label:'สถานะ',w:'20mm'}],
       rows,
       footer: ['','','รวม '+rows.length+' รายการ','','','',fmtMoney(total),'',''],
@@ -2943,8 +2964,7 @@ function reportFilterDefs(kind){
   if(kind === 'issue') return [monthDef, statusDef(['รออนุมัติ','อนุมัติ','ไม่อนุมัติ'])];
   if(kind === 'balance') return [monthDef, { key:'category', label:'หมวดหมู่', options:[['','ทุกหมวดหมู่'], ...MATERIAL_CATEGORIES.map(c=>[c,c])] }];
   if(kind === 'assetReg'){
-    const cats = [...new Set(state.assets.map(a=>a.category).filter(Boolean))];
-    return [statusDef(ASSET_STATUSES), { key:'category', label:'หมวดหมู่', options:[['','ทุกหมวดหมู่'], ...cats.map(c=>[c,c])] }];
+    return [statusDef(ASSET_STATUSES), { key:'category', label:'ประเภท', options:[['','ทุกประเภท'], ...assetCategoriesInUse().map(c=>[c,c])] }];
   }
   if(kind === 'assetRepair') return [monthDef, statusDef(['แจ้งซ่อม','กำลังซ่อม','ซ่อมเสร็จ','ซ่อมไม่ได้','ยกเลิก'])];
   return [monthDef, statusDef(['รออนุมัติ','ยืมอยู่','เกินกำหนด','คืนแล้ว','ไม่อนุมัติ','ยกเลิก'])];

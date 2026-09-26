@@ -105,6 +105,8 @@ create table public.fixed_assets (
 -- ----------------------------------------------------------------------------
 -- 5) TABLE: requests (คำร้อง ยืมครุภัณฑ์/แจ้งซ่อม - เบิกวัสดุแยกไปที่ material_issue_requests แล้ว)
 -- ----------------------------------------------------------------------------
+comment on column public.fixed_assets.category is 'ประเภทครุภัณฑ์ 14 ประเภท: ครุภัณฑ์สำนักงาน, ยานพาหนะและขนส่ง, ไฟฟ้าและวิทยุ, โฆษณาและเผยแพร่, การเกษตร, โรงงาน, ก่อสร้าง, สำรวจ, วิทยาศาสตร์, คอมพิวเตอร์, การศึกษา, งานบ้านงานครัว, สนาม, อื่น';
+
 create table public.requests (
   id              uuid primary key default gen_random_uuid(),
   request_code    text unique,
@@ -389,19 +391,19 @@ union all
 select 'MAT-005','น้ำยาทำความสะอาดโต๊ะ','วัสดุงานบ้านงานครัว','ขวด',10,10,'สเปรย์ทำความสะอาดพื้นผิว', id from public.users where username='staff';
 
 insert into public.fixed_assets (asset_code, name, category, brand_model, serial_number, purchase_date, purchase_price, status, location, responsible_user_id, description, created_by)
-select 'AST-001','คอมพิวเตอร์ตั้งโต๊ะ','คอมพิวเตอร์','Dell OptiPlex 3090','SN-DL30910001','2024-03-15'::date,24500::numeric,'ใช้งานปกติ','ห้องธุรการ ชั้น 2', u2.id,'เครื่องคอมพิวเตอร์สำหรับงานเอกสาร', u1.id
+select 'AST-001','คอมพิวเตอร์ตั้งโต๊ะ','ครุภัณฑ์คอมพิวเตอร์','Dell OptiPlex 3090','SN-DL30910001','2024-03-15'::date,24500::numeric,'ใช้งานปกติ','ห้องธุรการ ชั้น 2', u2.id,'เครื่องคอมพิวเตอร์สำหรับงานเอกสาร', u1.id
 from public.users u1, public.users u2 where u1.username='staff' and u2.username='employee'
 union all
-select 'AST-002','เครื่องพิมพ์เลเซอร์','เครื่องพิมพ์','HP LaserJet Pro M404','SN-HP4040002','2023-11-02'::date,8900::numeric,'ใช้งานปกติ','ห้องพัสดุ', u2.id,'เครื่องพิมพ์ขาวดำความเร็วสูง', u1.id
+select 'AST-002','เครื่องพิมพ์เลเซอร์','ครุภัณฑ์คอมพิวเตอร์','HP LaserJet Pro M404','SN-HP4040002','2023-11-02'::date,8900::numeric,'ใช้งานปกติ','ห้องพัสดุ', u2.id,'เครื่องพิมพ์ขาวดำความเร็วสูง', u1.id
 from public.users u1, public.users u2 where u1.username='staff' and u2.username='staff'
 union all
-select 'AST-003','โน้ตบุ๊ก','คอมพิวเตอร์','Lenovo ThinkPad E14','SN-LNE140003','2024-06-20'::date,28900::numeric,'ซ่อมบำรุง','ฝ่ายบัญชี', u2.id,'โน้ตบุ๊กสำหรับงานนอกสถานที่', u1.id
+select 'AST-003','โน้ตบุ๊ก','ครุภัณฑ์คอมพิวเตอร์','Lenovo ThinkPad E14','SN-LNE140003','2024-06-20'::date,28900::numeric,'ซ่อมบำรุง','ฝ่ายบัญชี', u2.id,'โน้ตบุ๊กสำหรับงานนอกสถานที่', u1.id
 from public.users u1, public.users u2 where u1.username='staff' and u2.username='wichai'
 union all
-select 'AST-004','โปรเจคเตอร์','โสตทัศนูปกรณ์','Epson EB-X06','SN-EPX060004','2022-08-10'::date,15900::numeric,'ใช้งานปกติ','ห้องประชุมใหญ่', null,'โปรเจคเตอร์สำหรับห้องประชุม', u1.id
+select 'AST-004','โปรเจคเตอร์','ครุภัณฑ์โฆษณาและเผยแพร่','Epson EB-X06','SN-EPX060004','2022-08-10'::date,15900::numeric,'ใช้งานปกติ','ห้องประชุมใหญ่', null,'โปรเจคเตอร์สำหรับห้องประชุม', u1.id
 from public.users u1 where u1.username='staff'
 union all
-select 'AST-005','เก้าอี้สำนักงาน','เฟอร์นิเจอร์','Ergotrend ERGO-01','SN-ERG010005','2021-05-05'::date,3200::numeric,'ชำรุด','ห้องธุรการ ชั้น 2', null,'เก้าอี้สำนักงานพนักพิงสูง', u1.id
+select 'AST-005','เก้าอี้สำนักงาน','ครุภัณฑ์สำนักงาน','Ergotrend ERGO-01','SN-ERG010005','2021-05-05'::date,3200::numeric,'ชำรุด','ห้องธุรการ ชั้น 2', null,'เก้าอี้สำนักงานพนักพิงสูง', u1.id
 from public.users u1 where u1.username='staff';
 
 -- ข้อมูลหน่วยงานเริ่มต้น (แก้ไขได้ที่เมนู ตั้งค่าระบบ)
