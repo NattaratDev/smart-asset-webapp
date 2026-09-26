@@ -40,6 +40,19 @@
   .card { background:#fff; border-radius:1.5rem; padding:1.35rem; box-shadow:0 10px 30px -14px rgba(100,116,139,.2); }
   .badge { display:inline-flex; align-items:center; gap:.25rem; padding:.2rem .65rem; border-radius:999px; font-size:.72rem; font-weight:500; white-space:nowrap; }
   .nav-btn.active-nav { color:#0EA5E9 !important; background:#F0F9FF; }
+  #printArea { display:none; }
+  .a4-sheet { width:210mm; min-height:297mm; box-sizing:border-box; padding:14mm 16mm; background:#fff; color:#111; font-size:14px; line-height:1.7; box-shadow:0 4px 20px rgba(0,0,0,.12); }
+  .a4-sheet table { width:100%; border-collapse:collapse; }
+  .a4-sheet th, .a4-sheet td { border:1px solid #111; padding:3px 6px; font-size:13px; }
+  .a4-sheet th { text-align:center; font-weight:600; }
+  .a4-dots { display:inline-block; border-bottom:1px dotted #111; min-width:50mm; text-align:center; }
+  @media print {
+    @page { size:A4; margin:0; }
+    body { background:#fff !important; }
+    body > *:not(#printArea) { display:none !important; }
+    #printArea { display:block !important; }
+    #printArea .a4-sheet { box-shadow:none; }
+  }
 </style>
 </head>
 <body class="text-slate-700">
@@ -174,6 +187,9 @@
     <div id="adminPanelGrid" class="grid grid-cols-3 gap-3"></div>
   </div>
 </div>
+
+<!-- Print area (A4 forms) -->
+<div id="printArea"></div>
 
 <!-- Generic Modal -->
 <div id="modalOverlay" class="fixed inset-0 bg-black/40 z-[90] hidden items-center justify-center p-4">
@@ -1586,6 +1602,7 @@ function renderTrackTable(){
       <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
       <td class="py-2"><div class="flex gap-2 items-center">
         <button onclick="openIssueDetailModal('${r.id}')" class="btn-secondary !py-1.5 !px-3 text-xs gap-1"><i data-lucide="eye" class="w-3.5 h-3.5"></i>ดูสถานะ</button>
+        <button onclick="openIssuePrintPreview('${r.id}')" class="w-8 h-8 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center" title="พิมพ์ใบเบิก"><i data-lucide="printer" class="w-4 h-4"></i></button>
         ${r.status==='รออนุมัติ' && isPriv ? `
           <button onclick="approveIssueRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
           <button onclick="approveIssueRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
@@ -1705,8 +1722,83 @@ function openIssueDetailModal(id){
           </div>`).join('') || '<p class="text-center text-slate-300 py-4 text-sm">ไม่มีรายการ</p>'}
       </div>
     </div>
+    <div class="flex justify-end pt-4"><button onclick="openIssuePrintPreview('${r.id}')" class="btn-secondary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ใบเบิก</button></div>
   `, 'max-w-lg');
   lucide.createIcons();
+}
+
+const TH_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+function formatThaiLongDate(d){
+  const x = new Date(d);
+  return `${x.getDate()} ${TH_MONTHS[x.getMonth()]} ${x.getFullYear()+543}`;
+}
+
+function issueFormHtml(r){
+  const orgName = (typeof ORG_NAME !== 'undefined' && ORG_NAME) ? ORG_NAME : 'ชื่อหน่วยงาน';
+  const requester = state.users.find(u=>u.id===r.requester_id);
+  const approved = r.status === 'อนุมัติ';
+  const approverName = approved && r.approved_by ? getUserName(r.approved_by) : '';
+  const items = r.items || [];
+  const minRows = 10;
+  const rows = [];
+  for(let i=0; i<Math.max(minRows, items.length); i++){
+    const it = items[i];
+    rows.push(`<tr style="height:9mm">
+      <td style="text-align:center;width:12mm">${it?i+1:''}</td>
+      <td>${it?escapeHtml(it.material?.name||'-'):''}</td>
+      <td style="text-align:center;width:22mm">${it?escapeHtml(it.material?.unit||''):''}</td>
+      <td style="text-align:center;width:24mm">${it?it.quantity:''}</td>
+      <td style="text-align:center;width:24mm">${it&&approved?it.quantity:''}</td>
+      <td style="width:32mm"></td>
+    </tr>`);
+  }
+  const sign = (label, name) => `
+    <div style="text-align:center;margin-top:12mm">
+      <div>(ลงชื่อ)<span class="a4-dots" style="min-width:55mm"></span>${label}</div>
+      <div>(<span class="a4-dots" style="min-width:55mm">${name?escapeHtml(name):'&nbsp;'}</span>)</div>
+    </div>`;
+  return `<div class="a4-sheet">
+    <div style="text-align:center">
+      <div style="font-size:16px;font-weight:600">${escapeHtml(orgName)}</div>
+      <div style="font-size:20px;font-weight:700;margin-top:2mm">ใบเบิกวัสดุ</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:6mm">
+      <div>เลขที่ใบเบิก <b>${escapeHtml(r.issue_code||'-')}</b></div>
+      <div>วันที่เบิก <b>${formatThaiLongDate(r.created_at)}</b></div>
+    </div>
+    <div style="margin-top:5mm">เรียน หัวหน้าหน่วยพัสดุ</div>
+    <div style="text-indent:15mm;margin-top:2mm">ด้วยข้าพเจ้า <b>${escapeHtml(requester?.full_name||'-')}</b>${requester?.position?` ตำแหน่ง ${escapeHtml(requester.position)}`:''} มีความประสงค์ขอเบิกพัสดุ ตามรายการข้างล่างนี้ เพื่อใช้ในการ <b>${escapeHtml(r.reason||'-')}</b></div>
+    <table style="margin-top:6mm">
+      <thead><tr><th>ลำดับ</th><th>รายการ</th><th>หน่วยนับ</th><th>จำนวนเบิก</th><th>จำนวนจ่าย</th><th>หมายเหตุ</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8mm;margin-top:8mm">
+      ${sign('ผู้เบิก', requester?.full_name||'')}
+      ${sign('ผู้อนุมัติ', approverName)}
+      ${sign('ผู้จ่าย', '')}
+      ${sign('ผู้รับ', '')}
+    </div>
+  </div>`;
+}
+
+function openIssuePrintPreview(id){
+  const r = state.issueRequests.find(x=>x.id===id);
+  if(!r) return;
+  openModal(`ใบเบิกวัสดุ ${r.issue_code}`, `
+    <div class="flex justify-end gap-2 mb-3">
+      <button onclick="closeModal()" class="btn-secondary">ปิด</button>
+      <button onclick="printIssueForm('${r.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF</button>
+    </div>
+    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:210mm;margin:0 auto">${issueFormHtml(r)}</div></div>
+  `, 'max-w-4xl');
+  lucide.createIcons();
+}
+
+function printIssueForm(id){
+  const r = state.issueRequests.find(x=>x.id===id);
+  if(!r) return;
+  $('#printArea').innerHTML = issueFormHtml(r);
+  window.print();
 }
 
 function refreshIssueView(){
