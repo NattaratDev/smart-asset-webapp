@@ -113,7 +113,9 @@ create index idx_requests_status on public.requests(status);
 -- 7) AUTO-UPDATE updated_at TRIGGER
 -- ----------------------------------------------------------------------------
 create or replace function public.set_updated_at()
-returns trigger language plpgsql as $$
+returns trigger language plpgsql
+set search_path = public
+as $$
 begin
   new.updated_at = now();
   return new;
@@ -219,19 +221,19 @@ union all
 select 'MAT-005','น้ำยาทำความสะอาดโต๊ะ','ของใช้ทั่วไป','ขวด',10,10,'สเปรย์ทำความสะอาดพื้นผิว', id from public.users where username='staff';
 
 insert into public.fixed_assets (asset_code, name, category, brand_model, serial_number, purchase_date, purchase_price, status, location, responsible_user_id, description, created_by)
-select 'AST-001','คอมพิวเตอร์ตั้งโต๊ะ','คอมพิวเตอร์','Dell OptiPlex 3090','SN-DL30910001','2024-03-15',24500,'ใช้งานปกติ','ห้องธุรการ ชั้น 2', u2.id,'เครื่องคอมพิวเตอร์สำหรับงานเอกสาร', u1.id
+select 'AST-001','คอมพิวเตอร์ตั้งโต๊ะ','คอมพิวเตอร์','Dell OptiPlex 3090','SN-DL30910001','2024-03-15'::date,24500::numeric,'ใช้งานปกติ','ห้องธุรการ ชั้น 2', u2.id,'เครื่องคอมพิวเตอร์สำหรับงานเอกสาร', u1.id
 from public.users u1, public.users u2 where u1.username='staff' and u2.username='employee'
 union all
-select 'AST-002','เครื่องพิมพ์เลเซอร์','เครื่องพิมพ์','HP LaserJet Pro M404','SN-HP4040002','2023-11-02',8900,'ใช้งานปกติ','ห้องพัสดุ', u2.id,'เครื่องพิมพ์ขาวดำความเร็วสูง', u1.id
+select 'AST-002','เครื่องพิมพ์เลเซอร์','เครื่องพิมพ์','HP LaserJet Pro M404','SN-HP4040002','2023-11-02'::date,8900::numeric,'ใช้งานปกติ','ห้องพัสดุ', u2.id,'เครื่องพิมพ์ขาวดำความเร็วสูง', u1.id
 from public.users u1, public.users u2 where u1.username='staff' and u2.username='staff'
 union all
-select 'AST-003','โน้ตบุ๊ก','คอมพิวเตอร์','Lenovo ThinkPad E14','SN-LNE140003','2024-06-20',28900,'ซ่อมบำรุง','ฝ่ายบัญชี', u2.id,'โน้ตบุ๊กสำหรับงานนอกสถานที่', u1.id
+select 'AST-003','โน้ตบุ๊ก','คอมพิวเตอร์','Lenovo ThinkPad E14','SN-LNE140003','2024-06-20'::date,28900::numeric,'ซ่อมบำรุง','ฝ่ายบัญชี', u2.id,'โน้ตบุ๊กสำหรับงานนอกสถานที่', u1.id
 from public.users u1, public.users u2 where u1.username='staff' and u2.username='wichai'
 union all
-select 'AST-004','โปรเจคเตอร์','โสตทัศนูปกรณ์','Epson EB-X06','SN-EPX060004','2022-08-10',15900,'ใช้งานปกติ','ห้องประชุมใหญ่', null,'โปรเจคเตอร์สำหรับห้องประชุม', u1.id
+select 'AST-004','โปรเจคเตอร์','โสตทัศนูปกรณ์','Epson EB-X06','SN-EPX060004','2022-08-10'::date,15900::numeric,'ใช้งานปกติ','ห้องประชุมใหญ่', null,'โปรเจคเตอร์สำหรับห้องประชุม', u1.id
 from public.users u1 where u1.username='staff'
 union all
-select 'AST-005','เก้าอี้สำนักงาน','เฟอร์นิเจอร์','Ergotrend ERGO-01','SN-ERG010005','2021-05-05',3200,'ชำรุด','ห้องธุรการ ชั้น 2', null,'เก้าอี้สำนักงานพนักพิงสูง', u1.id
+select 'AST-005','เก้าอี้สำนักงาน','เฟอร์นิเจอร์','Ergotrend ERGO-01','SN-ERG010005','2021-05-05'::date,3200::numeric,'ชำรุด','ห้องธุรการ ชั้น 2', null,'เก้าอี้สำนักงานพนักพิงสูง', u1.id
 from public.users u1 where u1.username='staff';
 
 insert into public.requests (request_code, requester_id, request_type, material_id, quantity, reason, status)
