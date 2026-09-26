@@ -76,6 +76,10 @@ create table public.asset_receipts (
   receipt_code  text unique not null,
   receive_date  date not null default current_date,
   supplier      text,
+  supplier_address   text,
+  supplier_phone     text,
+  fund_type          text check (fund_type is null or fund_type in ('เงินงบประมาณ','เงินนอกงบประมาณ','เงินบริจาค/เงินช่วยเหลือ','อื่นๆ')),
+  acquisition_method text check (acquisition_method is null or acquisition_method in ('ประกาศเชิญชวน','คัดเลือก','เฉพาะเจาะจง','รับบริจาค')),
   doc_ref       text,
   note          text,
   received_by   uuid references public.users(id) on delete set null,
@@ -95,7 +99,15 @@ create table public.fixed_assets (
   location            text,
   responsible_user_id uuid references public.users(id) on delete set null,
   image_url           text,
-  description         text,
+  description         text,   -- ลักษณะ/คุณสมบัติ
+  fund_type           text check (fund_type is null or fund_type in ('เงินงบประมาณ','เงินนอกงบประมาณ','เงินบริจาค/เงินช่วยเหลือ','อื่นๆ')),
+  acquisition_method  text check (acquisition_method is null or acquisition_method in ('ประกาศเชิญชวน','คัดเลือก','เฉพาะเจาะจง','รับบริจาค')),
+  supplier_name       text,   -- ผู้ขาย/ผู้รับจ้าง/ผู้บริจาค
+  supplier_address    text,
+  supplier_phone      text,
+  doc_ref             text,   -- ที่เอกสารการได้มา
+  useful_life_years   numeric check (useful_life_years is null or useful_life_years > 0),  -- อายุการใช้งาน (ปี) คำนวณค่าเสื่อมราคาแบบเส้นตรง มูลค่าซาก 1 บาท
+  remark              text,
   receipt_id          uuid references public.asset_receipts(id) on delete set null,
   created_by          uuid references public.users(id) on delete set null,
   created_at          timestamptz not null default now(),

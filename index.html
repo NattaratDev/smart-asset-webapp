@@ -1242,6 +1242,12 @@ const ASSET_CATEGORIES = [
   'ครุภัณฑ์คอมพิวเตอร์','ครุภัณฑ์การศึกษา','ครุภัณฑ์งานบ้านงานครัว','ครุภัณฑ์สนาม','ครุภัณฑ์อื่น',
 ];
 // fixed list plus any legacy value still stored on an asset (so old data is never hidden)
+const TH_MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const ASSET_FUND_TYPES = ['เงินงบประมาณ','เงินนอกงบประมาณ','เงินบริจาค/เงินช่วยเหลือ','อื่นๆ'];
+const ASSET_ACQ_METHODS = ['ประกาศเชิญชวน','คัดเลือก','เฉพาะเจาะจง','รับบริจาค'];
+function optionsHtml(list, selected, blank){
+  return (blank ? `<option value="">${blank}</option>` : '') + list.map(x=>`<option value="${escapeHtml(x)}" ${selected===x?'selected':''}>${escapeHtml(x)}</option>`).join('');
+}
 function assetCategoryOptions(extra){
   const list = ASSET_CATEGORIES.slice();
   const add = c => { if(c && !list.includes(c)) list.push(c); };
@@ -1278,6 +1284,100 @@ function isLoanOverdue(l){ return l.status==='ยืมอยู่' && l.due_da
 function isAssetLendable(a){ return a.status==='ใช้งานปกติ' && !activeLoanOf(a.id); }
 function scopedRepairs(){ return state.user.role==='employee' ? state.assetRepairs.filter(r=>r.reported_by===state.user.id) : state.assetRepairs; }
 function scopedLoans(){ return state.user.role==='employee' ? state.assetLoans.filter(l=>l.borrower_id===state.user.id) : state.assetLoans; }
+
+// ค่าเสื่อมราคาแบบเส้นตรง มูลค่าซาก 1 บาท คิดตามปีงบประมาณ (1 ต.ค. - 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา
+function assetDepreciation(a, asOf = new Date()){
+  const cost = Number(a.purchase_price || 0);
+  const life = Number(a.useful_life_years || 0);
+  const res = { cost, life, rate: life ? 100/life : 0, rows: [], accumulated: 0, net: cost, ready: false };
+  if(!cost || !life || !a.purchase_date) return res;
+  res.ready = true;
+  const depreciable = Math.max(cost - 1, 0);
+  const acq = new Date(a.purchase_date + 'T00:00:00');
+  const fyOf = d => d.getFullYear() + (d.getMonth() >= 9 ? 1 : 0);   // ปี ค.ศ. ของปีงบประมาณ
+  const DAY = 86400000;
+  let acc = 0;
+  for(let fy = fyOf(acq); fy <= fyOf(asOf) && acc < depreciable - 0.005; fy++){
+    const fyStart = new Date(fy-1, 9, 1), fyEnd = new Date(fy, 8, 30);
+    const from = acq > fyStart ? acq : fyStart;
+    const to = asOf < fyEnd ? new Date(asOf.getFullYear(), asOf.getMonth(), asOf.getDate()) : fyEnd;
+    if(to < from) break;
+    const days = Math.round((to - from) / DAY) + 1;
+    const fyDays = Math.round((fyEnd - fyStart) / DAY) + 1;
+    let amt = depreciable / life * days / fyDays;
+    amt = Math.min(amt, depreciable - acc);
+    acc += amt;
+    res.rows.push({ fyBE: fy + 543, from, to, partial: to < fyEnd, amount: amt, accumulated: acc, net: cost - acc });
+  }
+  res.accumulated = acc; res.net = cost - acc;
+  return res;
+}
+
+function shortThaiDate(d){ const x = new Date(d); return `${x.getDate()} ${TH_MONTHS_SHORT[x.getMonth()]} ${x.getFullYear()+543}`; }
+function assetLedgerHtml(a){
+  const o = orgInfo();
+  const dep = assetDepreciation(a);
+  const resp = state.users.find(u=>u.id===a.responsible_user_id);
+  const box = (list, val) => list.map(x=>`<span style="margin-right:4mm;white-space:nowrap">${val===x?'&#9745;':'&#9744;'} ${escapeHtml(x)}</span>`).join('');
+  const line = (label, val, extra='') => `<div style="display:flex;gap:2mm;margin-top:1mm;${extra}"><span style="white-space:nowrap">${label}</span><span style="flex:1;border-bottom:1px dotted #111;padding:0 2mm;min-height:6mm">${val ? escapeHtml(val) : '&nbsp;'}</span></div>`;
+  const half = (l1, v1, l2, v2) => `<div style="display:grid;grid-template-columns:1fr 1fr;gap:0 6mm">${line(l1,v1)}${line(l2,v2)}</div>`;
+  const rows = [];
+  rows.push(`<tr style="height:7mm"><td style="text-align:center">${a.purchase_date ? shortThaiDate(a.purchase_date+'T00:00:00') : ''}</td><td style="text-align:center">${escapeHtml(a.doc_ref||'')}</td><td>ได้มา ${escapeHtml(a.name)}</td><td style="text-align:right">${dep.cost ? fmtMoney(dep.cost) : ''}</td><td></td><td></td><td style="text-align:right">${dep.cost ? fmtMoney(dep.cost) : ''}</td><td>${escapeHtml(a.remark||'')}</td></tr>`);
+  dep.rows.forEach(r=>{
+    rows.push(`<tr style="height:7mm"><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td><td></td><td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}${r.partial?' (ถึงปัจจุบัน)':''}</td><td></td><td style="text-align:right">${fmtMoney(r.amount)}</td><td style="text-align:right">${fmtMoney(r.accumulated)}</td><td style="text-align:right">${fmtMoney(r.net)}</td><td></td></tr>`);
+  });
+  if(a.status === 'จำหน่ายแล้ว') rows.push(`<tr style="height:7mm"><td></td><td></td><td>สถานะ: จำหน่ายแล้ว</td><td></td><td></td><td></td><td></td><td></td></tr>`);
+  while(rows.length < 10) rows.push('<tr style="height:7mm"><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>');
+  const sign = label => `<div style="text-align:center;margin-top:8mm"><div>(ลงชื่อ)<span class="a4-dots" style="min-width:45mm"></span>${label}</div><div>(<span style="display:inline-block;min-width:50mm">&nbsp;</span>)</div></div>`;
+  return `<div class="a4-sheet">
+    <div style="text-align:center">
+      ${orgHeaderHtml({nameOnly:true})}
+      <div style="font-size:20px;font-weight:700;margin-top:1mm">ทะเบียนคุมทรัพย์สิน</div>
+    </div>
+    <div style="margin-top:4mm">
+      ${half('ส่วนราชการ', o.name, 'ประเภท', a.category)}
+      ${half('ชื่อ/รายการ', a.name, 'รหัสครุภัณฑ์', a.asset_code)}
+      ${line('ลักษณะ/คุณสมบัติ', a.description)}
+      ${half('ยี่ห้อ/รุ่นแบบ', a.brand_model, 'หมายเลขเครื่อง (Serial)', a.serial_number)}
+      ${half('สถานที่ตั้ง/หน่วยงานที่ใช้', a.location, 'ผู้รับผิดชอบ', resp?.full_name)}
+      <div style="margin-top:1mm">ประเภทเงิน ${box(ASSET_FUND_TYPES, a.fund_type)}</div>
+      <div style="margin-top:1mm">วิธีการได้มา ${box(ASSET_ACQ_METHODS, a.acquisition_method)}</div>
+      ${line('ผู้ขาย/ผู้รับจ้าง/ผู้บริจาค', a.supplier_name)}
+      ${half('ที่อยู่', a.supplier_address, 'โทรศัพท์', a.supplier_phone)}
+      ${half('อายุการใช้งาน (ปี)', a.useful_life_years ? String(a.useful_life_years) : '', 'อัตราค่าเสื่อมราคา (ร้อยละต่อปี)', dep.rate ? dep.rate.toFixed(2) : '')}
+    </div>
+    <table style="margin-top:4mm;font-size:12px;table-layout:fixed">
+      <thead>
+        <tr><th rowspan="2" style="width:21mm">วัน เดือน ปี</th><th rowspan="2" style="width:17mm">ที่เอกสาร</th><th rowspan="2">รายการ</th><th rowspan="2" style="width:22mm">ราคาทุน (บาท)</th><th colspan="2">ค่าเสื่อมราคา (บาท)</th><th rowspan="2" style="width:22mm">มูลค่าสุทธิ (บาท)</th><th rowspan="2" style="width:18mm">หมายเหตุ</th></tr>
+        <tr><th style="width:21mm">ประจำปี</th><th style="width:22mm">สะสม</th></tr>
+      </thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>
+    ${dep.ready ? '' : '<div style="font-size:12px;color:#666;margin-top:2mm">* ยังไม่ได้กำหนดอายุการใช้งาน/ราคา/วันที่ได้มา จึงไม่คำนวณค่าเสื่อมราคา (แก้ไขได้ที่ทะเบียนครุภัณฑ์)</div>'}
+    <div style="font-size:11px;color:#555;margin-top:2mm">ค่าเสื่อมราคาคำนวณแบบเส้นตรง มูลค่าซาก 1 บาท ตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8mm;margin-top:6mm">${sign('ผู้จัดทำ (เจ้าหน้าที่พัสดุ)')}${sign('ผู้ตรวจสอบ (หัวหน้าหน่วยพัสดุ)')}</div>
+  </div>`;
+}
+
+function openAssetLedger(id){
+  const a = state.assets.find(x=>x.id===id);
+  if(!a) return;
+  openModal(`ทะเบียนคุมทรัพย์สิน ${a.asset_code||''}`, `
+    <div class="flex justify-end gap-2 mb-3">
+      <button onclick="closeModal()" class="btn-secondary">ปิด</button>
+      <button onclick="printAssetLedger('${a.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF</button>
+    </div>
+    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:210mm;margin:0 auto">${assetLedgerHtml(a)}</div></div>
+  `, 'max-w-4xl', true);
+  lucide.createIcons();
+}
+
+function printAssetLedger(id){
+  const a = state.assets.find(x=>x.id===id);
+  if(!a) return;
+  $('#printArea').innerHTML = assetLedgerHtml(a);
+  printArea();
+}
 
 async function setAssetStatus(assetId, status){
   const { data, error } = await dbClient.from('fixed_assets').update({ status }).eq('id', assetId).select().single();
@@ -1342,6 +1442,7 @@ function renderAssetGrid(){
       <div class="flex gap-2 flex-wrap">
         ${btn(canLoan, `openLoanRequestModal('${a.id}')`, 'hand', 'ยืม')}
         ${btn(canRepair, `openRepairReportModal('${a.id}')`, 'wrench', 'แจ้งซ่อม')}
+        <button onclick="openAssetLedger('${a.id}')" title="ทะเบียนคุมทรัพย์สิน" class="w-9 h-9 rounded-xl bg-amber-50 text-amber-500 flex items-center justify-center shrink-0"><i data-lucide="file-text" class="w-4 h-4"></i></button>
         ${canManage?`<button onclick="openAssetModal('${a.id}')" class="w-9 h-9 rounded-xl bg-sky-50 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="pencil" class="w-4 h-4"></i></button>
         <button onclick="deleteAsset('${a.id}')" class="w-9 h-9 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
       </div>
@@ -1382,7 +1483,19 @@ function openAssetModal(id){
           </select>
         </div>
       </div>
-      <div><label class="text-sm text-slate-500">รายละเอียด</label><textarea id="f_description" rows="2" class="input-field">${escapeHtml(record.description||'')}</textarea></div>
+      <div><label class="text-sm text-slate-500">ลักษณะ/คุณสมบัติ</label><textarea id="f_description" rows="2" class="input-field">${escapeHtml(record.description||'')}</textarea></div>
+      <div class="pt-2 border-t border-slate-100"><p class="text-sm font-medium text-slate-600 mb-2">ข้อมูลสำหรับทะเบียนคุมทรัพย์สิน</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="text-sm text-slate-500">ประเภทเงิน</label><select id="f_fund_type" class="input-field">${optionsHtml(ASSET_FUND_TYPES, record.fund_type, '- ไม่ระบุ -')}</select></div>
+          <div><label class="text-sm text-slate-500">วิธีการได้มา</label><select id="f_acq_method" class="input-field">${optionsHtml(ASSET_ACQ_METHODS, record.acquisition_method, '- ไม่ระบุ -')}</select></div>
+          <div class="col-span-2"><label class="text-sm text-slate-500">ผู้ขาย/ผู้รับจ้าง/ผู้บริจาค</label><input id="f_supplier_name" value="${escapeHtml(record.supplier_name||'')}" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">ที่อยู่ผู้ขาย</label><input id="f_supplier_address" value="${escapeHtml(record.supplier_address||'')}" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">โทรศัพท์ผู้ขาย</label><input id="f_supplier_phone" value="${escapeHtml(record.supplier_phone||'')}" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">ที่เอกสาร</label><input id="f_doc_ref" value="${escapeHtml(record.doc_ref||'')}" placeholder="ใบส่งของ/ใบเสร็จ/สัญญา" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">อายุการใช้งาน (ปี)</label><input id="f_life" type="number" min="1" step="0.5" value="${record.useful_life_years??''}" class="input-field"></div>
+        </div>
+        <div class="mt-3"><label class="text-sm text-slate-500">หมายเหตุ</label><input id="f_remark" value="${escapeHtml(record.remark||'')}" class="input-field"></div>
+      </div>
       <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">บันทึก</button></div>
     </form>
   `);
@@ -1405,6 +1518,14 @@ async function submitAssetForm(e, record){
       location: $('#f_location').value.trim() || null,
       responsible_user_id: $('#f_responsible').value || null,
       description: $('#f_description').value.trim() || null,
+      fund_type: $('#f_fund_type').value || null,
+      acquisition_method: $('#f_acq_method').value || null,
+      supplier_name: $('#f_supplier_name').value.trim() || null,
+      supplier_address: $('#f_supplier_address').value.trim() || null,
+      supplier_phone: $('#f_supplier_phone').value.trim() || null,
+      doc_ref: $('#f_doc_ref').value.trim() || null,
+      useful_life_years: $('#f_life').value ? Number($('#f_life').value) : null,
+      remark: $('#f_remark').value.trim() || null,
     };
     const file = $('#assetImageFile').files[0];
     if(file) payload.image_url = await uploadImage(file, 'assets');
@@ -1455,7 +1576,9 @@ function renderAssetReceive(){
             <div><label class="text-sm text-slate-500">Serial Number</label><input id="ar_serial" class="input-field"></div>
             <div><label class="text-sm text-slate-500">ราคา (บาท)</label><input id="ar_price" type="number" min="0" step="0.01" class="input-field"></div>
             <div><label class="text-sm text-slate-500">สถานที่ตั้ง</label><input id="ar_location" class="input-field"></div>
+            <div><label class="text-sm text-slate-500">อายุการใช้งาน (ปี)</label><input id="ar_life" type="number" min="1" step="0.5" class="input-field"></div>
           </div>
+          <div><label class="text-sm text-slate-500">ลักษณะ/คุณสมบัติ</label><input id="ar_desc" class="input-field"></div>
           <button type="submit" class="btn-secondary w-full justify-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มลงตะกร้า</button>
         </form>
       </div>
@@ -1464,8 +1587,12 @@ function renderAssetReceive(){
         <div id="arCartBody" class="space-y-2 mb-4 max-h-56 overflow-y-auto"></div>
         <div class="grid sm:grid-cols-3 gap-3 mb-3">
           <div><label class="text-sm text-slate-500">วันที่รับ</label><input id="ar_date" type="date" value="${todayStr()}" class="input-field"></div>
-          <div><label class="text-sm text-slate-500">ผู้จำหน่าย</label><input id="ar_supplier" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">ผู้จำหน่าย/ผู้บริจาค</label><input id="ar_supplier" class="input-field"></div>
           <div><label class="text-sm text-slate-500">เลขที่เอกสาร</label><input id="ar_doc" placeholder="ใบส่งของ/ใบเสร็จ" class="input-field"></div>
+          <div><label class="text-sm text-slate-500">ประเภทเงิน</label><select id="ar_fund" class="input-field">${optionsHtml(ASSET_FUND_TYPES, '', '- ไม่ระบุ -')}</select></div>
+          <div><label class="text-sm text-slate-500">วิธีการได้มา</label><select id="ar_method" class="input-field">${optionsHtml(ASSET_ACQ_METHODS, '', '- ไม่ระบุ -')}</select></div>
+          <div><label class="text-sm text-slate-500">โทรศัพท์ผู้จำหน่าย</label><input id="ar_sphone" class="input-field"></div>
+          <div class="sm:col-span-3"><label class="text-sm text-slate-500">ที่อยู่ผู้จำหน่าย</label><input id="ar_saddr" class="input-field"></div>
         </div>
         <button id="arConfirmBtn" onclick="openAssetReceiveConfirm()" disabled class="btn-primary w-full justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="check-circle" class="w-4 h-4"></i>ยืนยันการรับครุภัณฑ์ทั้งหมด</button>
       </div>
@@ -1494,6 +1621,8 @@ function addToAssetReceiveCart(e){
     serial_number: $('#ar_serial').value.trim() || null,
     price: $('#ar_price').value ? Number($('#ar_price').value) : null,
     location: $('#ar_location').value.trim() || null,
+    description: $('#ar_desc').value.trim() || null,
+    life: $('#ar_life').value ? Number($('#ar_life').value) : null,
   });
   $('#arItemForm').reset();
   renderAssetReceiveCart();
@@ -1511,7 +1640,7 @@ function renderAssetReceiveCart(){
     <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
       <div class="min-w-0">
         <p class="text-sm font-medium text-slate-700 truncate">${escapeHtml(c.name)}</p>
-        <p class="text-xs text-slate-400 truncate">${[c.category, c.brand_model, c.serial_number?'S/N '+c.serial_number:'', c.location, c.price!=null?fmtMoney(c.price)+' บาท':''].filter(Boolean).map(escapeHtml).join(' · ') || '-'}</p>
+        <p class="text-xs text-slate-400 truncate">${[c.category, c.brand_model, c.serial_number?'S/N '+c.serial_number:'', c.location, c.life?'อายุใช้งาน '+c.life+' ปี':'', c.price!=null?fmtMoney(c.price)+' บาท':''].filter(Boolean).map(escapeHtml).join(' · ') || '-'}</p>
       </div>
       <button onclick="removeFromAssetReceiveCart('${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
     </div>`).join('') || `<p class="text-center text-slate-300 py-6 text-sm">ยังไม่มีรายการในตะกร้า เพิ่มรายการจากฟอร์มด้านซ้ายก่อนยืนยัน</p>`;
@@ -1539,6 +1668,10 @@ async function submitAssetReceipt(){
   const receiveDate = $('#ar_date').value || todayStr();
   const supplier = $('#ar_supplier').value.trim() || null;
   const docRef = $('#ar_doc').value.trim() || null;
+  const fundType = $('#ar_fund').value || null;
+  const acqMethod = $('#ar_method').value || null;
+  const supplierPhone = $('#ar_sphone').value.trim() || null;
+  const supplierAddr = $('#ar_saddr').value.trim() || null;
   const items = [...assetReceiveCart];
   closeModal();
   showLoader();
@@ -1546,7 +1679,8 @@ async function submitAssetReceipt(){
   try{
     const receiptCode = nextSeqCodes(fyPrefix('AR'), state.assetReceipts.map(r=>r.receipt_code))[0];
     const { data: rc, error: e1 } = await dbClient.from('asset_receipts').insert({
-      receipt_code: receiptCode, receive_date: receiveDate, supplier, doc_ref: docRef, received_by: state.user.id
+      receipt_code: receiptCode, receive_date: receiveDate, supplier, doc_ref: docRef, received_by: state.user.id,
+      supplier_address: supplierAddr, supplier_phone: supplierPhone, fund_type: fundType, acquisition_method: acqMethod
     }).select().single();
     if(e1) throw e1;
     receipt = rc;
@@ -1554,6 +1688,8 @@ async function submitAssetReceipt(){
     const rows = items.map((c,i)=>({
       asset_code: codes[i], name: c.name, category: c.category, brand_model: c.brand_model, serial_number: c.serial_number,
       purchase_date: receiveDate, purchase_price: c.price, status:'ใช้งานปกติ', location: c.location,
+      description: c.description, useful_life_years: c.life, fund_type: fundType, acquisition_method: acqMethod,
+      supplier_name: supplier, supplier_address: supplierAddr, supplier_phone: supplierPhone, doc_ref: docRef,
       receipt_id: receipt.id, created_by: state.user.id,
     }));
     const { data: created, error: e2 } = await dbClient.from('fixed_assets').insert(rows).select();
@@ -1593,7 +1729,7 @@ function openAssetReceiptDetail(id){
   if(!r) return;
   const items = state.assets.filter(a=>a.receipt_id===id);
   openModal(`ใบรับครุภัณฑ์ ${r.receipt_code}`, `
-    <p class="text-sm text-slate-500 mb-3">วันที่รับ ${fmtDateOnly(r.receive_date)} · ผู้จำหน่าย ${escapeHtml(r.supplier||'-')} · เอกสาร ${escapeHtml(r.doc_ref||'-')} · ผู้รับ ${escapeHtml(getUserName(r.received_by))}</p>
+    <p class="text-sm text-slate-500 mb-3">วันที่รับ ${fmtDateOnly(r.receive_date)} · ผู้จำหน่าย ${escapeHtml(r.supplier||'-')}${r.supplier_phone?' (โทร. '+escapeHtml(r.supplier_phone)+')':''} · เอกสาร ${escapeHtml(r.doc_ref||'-')} · ผู้รับ ${escapeHtml(getUserName(r.received_by))}${r.fund_type?' · '+escapeHtml(r.fund_type):''}${r.acquisition_method?' · '+escapeHtml(r.acquisition_method):''}${r.supplier_address?'<br>ที่อยู่ผู้จำหน่าย '+escapeHtml(r.supplier_address):''}</p>
     <div class="space-y-2 max-h-72 overflow-y-auto">
       ${items.map(a=>`<div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm"><span class="text-slate-700 truncate"><span class="text-slate-400">${escapeHtml(a.asset_code||'')}</span> ${escapeHtml(a.name)}</span><span class="text-slate-500 shrink-0">${a.purchase_price!=null?fmtMoney(a.purchase_price):'-'}</span></div>`).join('') || '<p class="text-center text-slate-300 py-4 text-sm">ไม่มีรายการ</p>'}
     </div>
