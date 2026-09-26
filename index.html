@@ -1,0 +1,1240 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>Smart Asset - ระบบบันทึกข้อมูลสินทรัพย์</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Kanit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        fontFamily: { kanit: ['Kanit','sans-serif'] },
+        boxShadow: { soft: '0 10px 30px -10px rgba(129,140,248,0.25)' },
+      }
+    }
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://unpkg.com/lucide@latest"></script>
+<script src="config.js"></script>
+<style>
+  * { font-family: 'Kanit', sans-serif; }
+  body { background: linear-gradient(160deg,#EFF8FF 0%,#FDF3F8 50%,#FFFBEE 100%); min-height: 100vh; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 8px; }
+  @keyframes popIn { 0% { opacity:0; transform:scale(.92); } 100% { opacity:1; transform:scale(1); } }
+  @keyframes slideIn { 0% { opacity:0; transform:translateX(20px); } 100% { opacity:1; transform:translateX(0); } }
+  .input-field { width:100%; padding:.6rem .9rem; border-radius:.9rem; border:1px solid #E5E7EB; background:#F8FAFC; font-size:.875rem; outline:none; transition:.15s; color:#334155; }
+  .input-field:focus { background:#fff; border-color:#93C5FD; box-shadow:0 0 0 3px rgba(147,197,253,.25); }
+  .input-field:disabled { opacity:.55; cursor:not-allowed; }
+  .btn-primary { background:linear-gradient(135deg,#93C5FD,#C4B5FD); color:#fff; padding:.65rem 1.4rem; border-radius:1rem; font-size:.875rem; font-weight:500; box-shadow:0 8px 18px -8px rgba(147,197,253,.7); transition:.15s; border:none; cursor:pointer; display:inline-flex; align-items:center; }
+  .btn-primary:hover { transform:translateY(-1px); box-shadow:0 12px 22px -8px rgba(147,197,253,.8); }
+  .btn-secondary { background:#F1F5F9; color:#475569; padding:.65rem 1.4rem; border-radius:1rem; font-size:.875rem; font-weight:500; transition:.15s; border:none; cursor:pointer; display:inline-flex; align-items:center; }
+  .btn-secondary:hover { background:#E2E8F0; }
+  .card { background:#fff; border-radius:1.5rem; padding:1.35rem; box-shadow:0 10px 30px -14px rgba(100,116,139,.2); }
+  .badge { display:inline-flex; align-items:center; gap:.25rem; padding:.2rem .65rem; border-radius:999px; font-size:.72rem; font-weight:500; white-space:nowrap; }
+  .nav-btn.active-nav { color:#0EA5E9 !important; background:#F0F9FF; }
+</style>
+</head>
+<body class="text-slate-700">
+
+<!-- Loader -->
+<div id="loaderOverlay" class="fixed inset-0 z-[100] bg-white/70 backdrop-blur-sm hidden items-center justify-center">
+  <div class="flex flex-col items-center gap-3">
+    <div class="w-14 h-14 border-4 border-sky-200 border-t-sky-400 rounded-full animate-spin"></div>
+    <p class="text-sm text-slate-500">กำลังโหลด...</p>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div id="toastContainer" class="fixed top-4 right-4 z-[110] flex flex-col gap-2 items-end"></div>
+
+<!-- ============ Landing Page (Guest) ============ -->
+<div id="landingPage">
+  <header class="max-w-6xl mx-auto flex items-center justify-between px-5 py-5">
+    <div class="flex items-center gap-2">
+      <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center"><i data-lucide="box" class="w-5 h-5 text-white"></i></div>
+      <span class="font-semibold text-slate-700">Smart Asset</span>
+    </div>
+    <button onclick="showLoginPage()" class="btn-primary gap-2"><i data-lucide="log-in" class="w-4 h-4"></i>เข้าสู่ระบบ</button>
+  </header>
+
+  <section class="max-w-6xl mx-auto px-5 pt-8 pb-14 grid md:grid-cols-2 gap-10 items-center">
+    <div>
+      <span class="badge bg-sky-100 text-sky-500 mb-4">ระบบจัดการสินทรัพย์ในหน่วยงาน</span>
+      <h1 class="text-3xl md:text-4xl font-bold text-slate-700 leading-snug mb-4">บันทึกและติดตามข้อมูล<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-pink-400">ครุภัณฑ์ &amp; วัสดุ</span> ได้ง่ายในที่เดียว</h1>
+      <p class="text-slate-400 mb-6">จัดการข้อมูลสินทรัพย์ ครุภัณฑ์ และวัสดุของหน่วยงาน พร้อมระบบคำร้องขอเบิก-ยืม-แจ้งซ่อม และแดชบอร์ดสรุปภาพรวมแบบเรียลไทม์</p>
+      <button onclick="showLoginPage()" class="btn-primary gap-2">เริ่มใช้งาน <i data-lucide="arrow-right" class="w-4 h-4"></i></button>
+    </div>
+    <div class="relative">
+      <div class="absolute -top-6 -left-6 w-24 h-24 bg-yellow-100 rounded-full blur-2xl opacity-70"></div>
+      <div class="absolute -bottom-6 -right-6 w-28 h-28 bg-pink-100 rounded-full blur-2xl opacity-70"></div>
+      <div class="relative card"><canvas id="landingChart" height="220"></canvas></div>
+    </div>
+  </section>
+
+  <section class="max-w-6xl mx-auto px-5 pb-14">
+    <div id="landingStats" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+  </section>
+
+  <section class="max-w-6xl mx-auto px-5 pb-20 grid md:grid-cols-3 gap-5">
+    <div class="card"><i data-lucide="package" class="w-6 h-6 text-sky-400 mb-2"></i><h4 class="font-semibold text-slate-600 mb-1">จัดการวัสดุ</h4><p class="text-sm text-slate-400">บันทึกและติดตามวัสดุคงคลัง แจ้งเตือนเมื่อใกล้หมด</p></div>
+    <div class="card"><i data-lucide="monitor" class="w-6 h-6 text-pink-400 mb-2"></i><h4 class="font-semibold text-slate-600 mb-1">จัดการครุภัณฑ์</h4><p class="text-sm text-slate-400">ติดตามสถานะ ผู้รับผิดชอบ และประวัติการใช้งาน</p></div>
+    <div class="card"><i data-lucide="clipboard-check" class="w-6 h-6 text-amber-400 mb-2"></i><h4 class="font-semibold text-slate-600 mb-1">คำร้องออนไลน์</h4><p class="text-sm text-slate-400">เบิกวัสดุ ยืมครุภัณฑ์ แจ้งซ่อม พร้อมระบบอนุมัติ</p></div>
+  </section>
+
+  <footer class="text-center text-xs text-slate-400 pb-8">© 2026 Smart Asset · ระบบสาธิตเพื่อการศึกษา</footer>
+</div>
+
+<!-- ============ Login Page ============ -->
+<div id="loginPage" class="hidden min-h-screen flex items-center justify-center px-4">
+  <div class="card w-full max-w-sm relative">
+    <button onclick="showLanding()" class="absolute -top-3 -left-3 w-9 h-9 rounded-full bg-white shadow-soft flex items-center justify-center text-slate-400"><i data-lucide="arrow-left" class="w-4 h-4"></i></button>
+    <div class="text-center mb-6">
+      <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center mx-auto mb-3"><i data-lucide="box" class="w-7 h-7 text-white"></i></div>
+      <h2 class="font-semibold text-slate-700 text-lg">เข้าสู่ระบบ</h2>
+      <p class="text-xs text-slate-400">Smart Asset - ระบบบันทึกข้อมูลสินทรัพย์</p>
+    </div>
+    <form id="loginForm" class="space-y-4">
+      <div>
+        <label class="text-sm text-slate-500">ชื่อผู้ใช้</label>
+        <input id="loginUsername" required class="input-field mt-1" placeholder="username" autocomplete="username">
+      </div>
+      <div>
+        <label class="text-sm text-slate-500">รหัสผ่าน</label>
+        <div class="relative mt-1">
+          <input id="loginPassword" type="password" required class="input-field pr-10" placeholder="••••••••" autocomplete="current-password">
+          <button type="button" onclick="togglePwd('loginPassword', this)" class="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"><i data-lucide="eye" class="w-4 h-4"></i></button>
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-500">
+        <input type="checkbox" id="loginRemember" class="w-4 h-4 rounded"> จดจำการเข้าสู่ระบบ
+      </label>
+      <button type="submit" class="btn-primary w-full justify-center gap-2"><i data-lucide="log-in" class="w-4 h-4"></i>เข้าสู่ระบบ</button>
+      <div class="text-center text-[11px] text-slate-400 pt-1 leading-relaxed">
+        ทดสอบ: admin/admin123 · staff/staff123 · employee/employee123
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ============ App Shell ============ -->
+<div id="appShell" class="hidden">
+  <aside class="hidden md:flex md:flex-col fixed inset-y-0 left-0 w-64 bg-white/80 backdrop-blur-md border-r border-slate-100 px-4 py-6 z-30">
+    <div class="flex items-center gap-2 px-2 mb-8">
+      <div class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-300 via-pink-300 to-amber-200 flex items-center justify-center"><i data-lucide="box" class="w-5 h-5 text-white"></i></div>
+      <div>
+        <p class="font-semibold text-slate-700 leading-tight">Smart Asset</p>
+        <p class="text-[11px] text-slate-400">ระบบจัดการสินทรัพย์</p>
+      </div>
+    </div>
+    <nav id="sidebarNav" class="flex flex-col gap-1 flex-1 overflow-y-auto"></nav>
+    <div class="border-t border-slate-100 pt-4 mt-4 flex items-center gap-3 px-2">
+      <div id="sidebarAvatar" class="w-10 h-10 rounded-2xl bg-gradient-to-br from-sky-300 to-pink-300 flex items-center justify-center overflow-hidden shrink-0"></div>
+      <div class="flex-1 min-w-0">
+        <p id="sidebarUserName" class="text-sm font-medium text-slate-700 truncate"></p>
+        <p id="sidebarUserRole" class="text-[11px] text-slate-400"></p>
+      </div>
+      <button onclick="openLogoutModal()" title="ออกจากระบบ" class="text-slate-400 hover:text-rose-400"><i data-lucide="log-out" class="w-5 h-5"></i></button>
+    </div>
+  </aside>
+
+  <header class="sticky top-0 z-20 bg-white/70 backdrop-blur-md border-b border-slate-100 px-4 md:px-8 py-3 flex items-center justify-between md:ml-64">
+    <h2 id="pageTitle" class="font-semibold text-slate-600 text-lg"></h2>
+    <div id="userMenuWrap" class="relative">
+      <button onclick="toggleUserMenu()" class="flex items-center gap-2">
+        <div id="topbarAvatar" class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-300 to-pink-300 flex items-center justify-center overflow-hidden"></div>
+        <span class="hidden sm:block text-sm text-slate-600" id="topbarName"></span>
+        <i data-lucide="chevron-down" class="w-4 h-4 text-slate-400"></i>
+      </button>
+      <div id="userMenu" class="hidden absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-soft py-2 z-40">
+        <button onclick="navigate('profile'); closeUserMenu();" class="w-full text-left px-4 py-2 text-sm hover:bg-sky-50 flex items-center gap-2"><i data-lucide="user-circle" class="w-4 h-4"></i>โปรไฟล์</button>
+        <button onclick="openLogoutModal(); closeUserMenu();" class="w-full text-left px-4 py-2 text-sm text-rose-500 hover:bg-rose-50 flex items-center gap-2"><i data-lucide="log-out" class="w-4 h-4"></i>ออกจากระบบ</button>
+      </div>
+    </div>
+  </header>
+
+  <main id="mainContent" class="md:ml-64 px-4 md:px-8 py-6 pb-28 md:pb-10 min-h-screen"></main>
+
+  <nav id="bottomNav" class="md:hidden fixed bottom-0 inset-x-0 bg-white/90 backdrop-blur-md border-t border-slate-100 flex items-end justify-around px-2 py-2 z-40"></nav>
+
+  <div id="adminPanelOverlay" onclick="closeAdminPanel()" class="md:hidden fixed inset-0 bg-black/30 z-40 hidden"></div>
+  <div id="adminPanel" class="md:hidden fixed bottom-0 inset-x-0 bg-white rounded-t-3xl shadow-soft z-50 p-5 pb-8" style="transform:translateY(100%); transition:transform .3s ease;">
+    <div class="w-10 h-1.5 bg-slate-200 rounded-full mx-auto mb-4"></div>
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="font-semibold text-slate-600">เมนูจัดการ</h3>
+      <button onclick="closeAdminPanel()" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+    <div id="adminPanelGrid" class="grid grid-cols-3 gap-3"></div>
+  </div>
+</div>
+
+<!-- Generic Modal -->
+<div id="modalOverlay" class="fixed inset-0 bg-black/40 z-[90] hidden items-center justify-center p-4">
+  <div id="modalBox" class="bg-white rounded-3xl shadow-soft max-w-lg w-full max-h-[90vh] overflow-y-auto p-6"></div>
+</div>
+
+<!-- Confirm Modal -->
+<div id="confirmModal" class="fixed inset-0 bg-black/40 z-[95] hidden items-center justify-center p-4">
+  <div class="bg-white rounded-3xl shadow-soft max-w-sm w-full p-6 text-center" style="animation:popIn .2s ease;">
+    <div class="w-14 h-14 rounded-2xl bg-amber-50 text-amber-400 flex items-center justify-center mx-auto mb-4"><i data-lucide="alert-triangle" class="w-7 h-7"></i></div>
+    <p id="confirmMessage" class="text-sm text-slate-600 mb-5"></p>
+    <div class="flex gap-3">
+      <button onclick="closeConfirm()" class="btn-secondary flex-1 justify-center">ยกเลิก</button>
+      <button id="confirmActionBtn" class="flex-1 bg-rose-400 hover:bg-rose-500 text-white rounded-2xl py-2.5 text-sm font-medium transition">ยืนยัน</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ============================================================================
+   Smart Asset - App Logic
+   ตัวแปร client ตั้งชื่อ dbClient (ไม่ใช้ชื่อ supabase ซ้ำกับ library)
+============================================================================ */
+const dbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+Chart.defaults.font.family = 'Kanit';
+
+const SESSION_KEY = 'smartasset_session';
+const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], charts: {} };
+
+const MENU_ITEMS = {
+  dashboard: { label: 'แดชบอร์ด', icon: 'layout-dashboard', roles: ['admin','staff','employee'] },
+  employees: { label: 'พนักงาน', icon: 'users', roles: ['admin'] },
+  materials: { label: 'วัสดุ', icon: 'package', roles: ['admin','staff','employee'] },
+  assets: { label: 'ครุภัณฑ์', icon: 'monitor', roles: ['admin','staff','employee'] },
+  requests: { label: 'คำร้อง', icon: 'clipboard-list', roles: ['admin','staff','employee'] },
+  profile: { label: 'โปรไฟล์', icon: 'user-circle', roles: ['admin','staff','employee'] },
+};
+const BOTTOM_NAV_KEYS = ['dashboard','materials','assets','requests'];
+
+// ---------------------------------------------------------------------------
+// Utilities
+// ---------------------------------------------------------------------------
+function $(sel, root=document){ return root.querySelector(sel); }
+function $all(sel, root=document){ return [...root.querySelectorAll(sel)]; }
+function escapeHtml(str){ if(str===null||str===undefined) return ''; return String(str).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function formatDate(d){ if(!d) return '-'; return new Date(d).toLocaleDateString('th-TH', {year:'numeric', month:'short', day:'numeric'}); }
+async function sha256(text){
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+function showLoader(){ $('#loaderOverlay').classList.remove('hidden'); $('#loaderOverlay').classList.add('flex'); }
+function hideLoader(){ $('#loaderOverlay').classList.add('hidden'); $('#loaderOverlay').classList.remove('flex'); }
+
+function showToast(message, type='success'){
+  const colors = { success:'bg-emerald-400', error:'bg-rose-400', info:'bg-sky-400' };
+  const icon = { success:'check-circle', error:'x-circle', info:'info' }[type] || 'info';
+  const el = document.createElement('div');
+  el.className = `${colors[type]||colors.info} text-white px-4 py-3 rounded-2xl shadow-soft flex items-center gap-2 text-sm max-w-xs`;
+  el.style.animation = 'slideIn .25s ease';
+  el.innerHTML = `<i data-lucide="${icon}" class="w-4 h-4 shrink-0"></i><span>${escapeHtml(message)}</span>`;
+  $('#toastContainer').appendChild(el);
+  lucide.createIcons();
+  setTimeout(()=>{ el.style.transition='all .3s'; el.style.opacity='0'; el.style.transform='translateX(20px)'; setTimeout(()=>el.remove(),300); }, 3000);
+}
+
+function imageFallback(img){
+  const div = document.createElement('div');
+  div.className = img.className + ' flex flex-col items-center justify-center gap-1 bg-slate-100 text-slate-300';
+  div.innerHTML = '<i data-lucide="image-off" class="w-5 h-5"></i><span class="text-[9px]">โหลดรูปไม่สำเร็จ</span>';
+  img.replaceWith(div);
+  lucide.createIcons();
+}
+
+function previewFile(input, previewId){
+  const file = input.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = e => { $('#'+previewId).innerHTML = `<img src="${e.target.result}" class="w-full h-full object-cover">`; };
+  reader.readAsDataURL(file);
+}
+
+function togglePwd(id, btn){
+  const input = document.getElementById(id);
+  const isPwd = input.type === 'password';
+  input.type = isPwd ? 'text' : 'password';
+  btn.innerHTML = `<i data-lucide="${isPwd?'eye-off':'eye'}" class="w-4 h-4"></i>`;
+  lucide.createIcons();
+}
+
+function roleLabel(role){ return {admin:'ผู้ดูแลระบบ', staff:'เจ้าหน้าที่พัสดุ', employee:'พนักงาน'}[role] || role; }
+function roleBadge(role){
+  const map = { admin:'bg-violet-100 text-violet-600', staff:'bg-sky-100 text-sky-600', employee:'bg-slate-100 text-slate-500' };
+  return `<span class="badge ${map[role]||''}">${roleLabel(role)}</span>`;
+}
+function statusBadge(status){
+  const map = {
+    'รออนุมัติ':'bg-amber-100 text-amber-600', 'อนุมัติ':'bg-emerald-100 text-emerald-600',
+    'ไม่อนุมัติ':'bg-rose-100 text-rose-600', 'เสร็จสิ้น':'bg-sky-100 text-sky-600',
+    'ใช้งานปกติ':'bg-emerald-100 text-emerald-600', 'ชำรุด':'bg-rose-100 text-rose-600',
+    'ซ่อมบำรุง':'bg-amber-100 text-amber-600', 'จำหน่ายแล้ว':'bg-slate-200 text-slate-500',
+  };
+  return `<span class="badge ${map[status]||'bg-slate-100 text-slate-500'}">${escapeHtml(status)}</span>`;
+}
+function getUserName(id){ const u = state.users.find(x=>x.id===id); return u ? u.full_name : '-'; }
+function getMaterialName(id){ const m = state.materials.find(x=>x.id===id); return m ? `${m.name} (${m.quantity} ${m.unit})` : '-'; }
+function getAssetName(id){ const a = state.assets.find(x=>x.id===id); return a ? `${a.name} (${a.asset_code||'-'})` : '-'; }
+function requestItemLabel(r){
+  if(r.material_id) return getMaterialName(r.material_id);
+  if(r.fixed_asset_id) return getAssetName(r.fixed_asset_id);
+  return '-';
+}
+
+function exportCSV(rows, filename, columns){
+  if(!rows.length){ showToast('ไม่มีข้อมูลสำหรับส่งออก','info'); return; }
+  const header = columns.join(',');
+  const body = rows.map(r=>columns.map(c=>`"${String(r[c]??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['﻿'+header+'\n'+body], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  showToast('ดาวน์โหลดรายงานสำเร็จ','success');
+}
+
+// ---------------------------------------------------------------------------
+// Image compression + upload
+// ---------------------------------------------------------------------------
+function compressImage(file, maxSize=1000, quality=0.72){
+  return new Promise((resolve, reject)=>{
+    if(!file.type.startsWith('image/')) return reject(new Error('ไฟล์ที่เลือกไม่ใช่รูปภาพ'));
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('อ่านไฟล์ไม่สำเร็จ'));
+    reader.onload = e => {
+      const img = new Image();
+      img.onerror = () => reject(new Error('ไฟล์รูปภาพเสียหาย'));
+      img.onload = () => {
+        let { width, height } = img;
+        if(width > height && width > maxSize){ height = Math.round(height * (maxSize/width)); width = maxSize; }
+        else if(height > maxSize){ width = Math.round(width * (maxSize/height)); height = maxSize; }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        canvas.getContext('2d').drawImage(img, 0, 0, width, height);
+        canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('บีบอัดภาพล้มเหลว')), 'image/jpeg', quality);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function uploadImage(file, folder){
+  const compressed = await compressImage(file);
+  const fileName = `${folder}/${crypto.randomUUID()}.jpg`;
+  const { error } = await dbClient.storage.from(SUPABASE_STORAGE_BUCKET).upload(fileName, compressed, { contentType:'image/jpeg', upsert:true });
+  if(error) throw error;
+  const { data } = dbClient.storage.from(SUPABASE_STORAGE_BUCKET).getPublicUrl(fileName);
+  return data.publicUrl;
+}
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+function persistSession(){
+  const store = localStorage.getItem(SESSION_KEY) ? localStorage : sessionStorage;
+  store.setItem(SESSION_KEY, JSON.stringify(state.user));
+}
+function restoreSession(){
+  const raw = localStorage.getItem(SESSION_KEY) || sessionStorage.getItem(SESSION_KEY);
+  if(raw){ try{ state.user = JSON.parse(raw); return true; } catch(e){} }
+  return false;
+}
+
+async function handleLogin(username, password, remember){
+  if(!username || !password){ showToast('กรุณากรอกชื่อผู้ใช้และรหัสผ่าน','error'); return; }
+  showLoader();
+  try{
+    const hash = await sha256(password);
+    const { data, error } = await dbClient.from('users').select('*')
+      .eq('username', username).eq('password_hash', hash).eq('is_active', true).maybeSingle();
+    if(error) throw error;
+    if(!data){ showToast('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง','error'); return; }
+    const sessionUser = { ...data };
+    delete sessionUser.password_hash;
+    state.user = sessionUser;
+    localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY);
+    (remember ? localStorage : sessionStorage).setItem(SESSION_KEY, JSON.stringify(sessionUser));
+    showToast(`ยินดีต้อนรับ ${sessionUser.full_name}`, 'success');
+    await fetchAll();
+    enterApp();
+  }catch(err){ console.error(err); showToast('เข้าสู่ระบบไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+function doLogout(){
+  state.user = null; state.currentView = null;
+  localStorage.removeItem(SESSION_KEY); sessionStorage.removeItem(SESSION_KEY);
+  showLanding();
+  showToast('ออกจากระบบเรียบร้อย','info');
+}
+function openLogoutModal(){ confirmAction('คุณต้องการออกจากระบบใช่หรือไม่?', doLogout); }
+
+// ---------------------------------------------------------------------------
+// View switching
+// ---------------------------------------------------------------------------
+function showLanding(){
+  $('#appShell').classList.add('hidden');
+  $('#loginPage').classList.add('hidden');
+  $('#landingPage').classList.remove('hidden');
+  loadLandingStats();
+}
+function showLoginPage(){
+  $('#landingPage').classList.add('hidden');
+  $('#appShell').classList.add('hidden');
+  $('#loginPage').classList.remove('hidden');
+  const rememberedUser = localStorage.getItem('smartasset_remember_username');
+  if(rememberedUser){ $('#loginUsername').value = rememberedUser; $('#loginRemember').checked = true; }
+}
+function enterApp(){
+  $('#landingPage').classList.add('hidden');
+  $('#loginPage').classList.add('hidden');
+  $('#appShell').classList.remove('hidden');
+  buildSidebar();
+  buildBottomNav();
+  navigate('dashboard');
+}
+
+async function loadLandingStats(){
+  try{
+    const [{count:userCount},{count:matCount},{count:assetCount},{count:pendingCount},{data:assetsForChart}] = await Promise.all([
+      dbClient.from('users').select('*',{count:'exact',head:true}),
+      dbClient.from('materials').select('*',{count:'exact',head:true}),
+      dbClient.from('fixed_assets').select('*',{count:'exact',head:true}),
+      dbClient.from('requests').select('*',{count:'exact',head:true}).eq('status','รออนุมัติ'),
+      dbClient.from('fixed_assets').select('status'),
+    ]);
+    const stats = [
+      {label:'พนักงานทั้งหมด', value:userCount||0, icon:'users', color:'sky'},
+      {label:'รายการวัสดุ', value:matCount||0, icon:'package', color:'amber'},
+      {label:'ครุภัณฑ์ทั้งหมด', value:assetCount||0, icon:'monitor', color:'pink'},
+      {label:'คำร้องรออนุมัติ', value:pendingCount||0, icon:'clock', color:'violet'},
+    ];
+    $('#landingStats').innerHTML = stats.map(s=>`
+      <div class="card flex items-center gap-3">
+        <div class="w-11 h-11 rounded-2xl bg-${s.color}-100 text-${s.color}-500 flex items-center justify-center shrink-0"><i data-lucide="${s.icon}" class="w-5 h-5"></i></div>
+        <div><p class="text-xl font-bold text-slate-700">${s.value}</p><p class="text-xs text-slate-400">${s.label}</p></div>
+      </div>`).join('');
+    lucide.createIcons();
+    const counts = {};
+    (assetsForChart||[]).forEach(a=>{ counts[a.status] = (counts[a.status]||0)+1; });
+    const ctx = document.getElementById('landingChart');
+    if(state.charts.landing) state.charts.landing.destroy();
+    if(ctx){
+      state.charts.landing = new Chart(ctx, {
+        type:'doughnut',
+        data:{ labels: Object.keys(counts).length?Object.keys(counts):['ไม่มีข้อมูล'], datasets:[{ data: Object.keys(counts).length?Object.values(counts):[1], backgroundColor:['#93C5FD','#FDA4AF','#FCD34D','#A7F3D0','#C4B5FD'] }] },
+        options:{ plugins:{ legend:{ position:'bottom' }, title:{ display:true, text:'สัดส่วนสถานะครุภัณฑ์' } } }
+      });
+    }
+  }catch(err){ console.error(err); }
+}
+
+async function fetchAll(){
+  showLoader();
+  try{
+    const [{data:users,error:e1},{data:materials,error:e2},{data:assets,error:e3},{data:requests,error:e4}] = await Promise.all([
+      dbClient.from('users').select('*').order('created_at',{ascending:false}),
+      dbClient.from('materials').select('*').order('created_at',{ascending:false}),
+      dbClient.from('fixed_assets').select('*').order('created_at',{ascending:false}),
+      dbClient.from('requests').select('*').order('created_at',{ascending:false}),
+    ]);
+    if(e1||e2||e3||e4) throw (e1||e2||e3||e4);
+    state.users = users||[]; state.materials = materials||[]; state.assets = assets||[]; state.requests = requests||[];
+  }catch(err){ showToast('โหลดข้อมูลล้มเหลว: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+// ---------------------------------------------------------------------------
+// Sidebar / Bottom nav / Admin panel
+// ---------------------------------------------------------------------------
+function navBtnHtml(key, extraClass=''){
+  const item = MENU_ITEMS[key];
+  return `<button data-view="${key}" onclick="navigate('${key}')" class="nav-btn flex flex-col items-center justify-center gap-0.5 text-slate-400 text-[11px] w-full py-1 ${extraClass}">
+    <i data-lucide="${item.icon}" class="w-5 h-5"></i>${item.label}</button>`;
+}
+
+function buildSidebar(){
+  const items = Object.entries(MENU_ITEMS).filter(([k,v])=>v.roles.includes(state.user.role));
+  $('#sidebarNav').innerHTML = items.map(([key,item])=>`
+    <button data-view="${key}" onclick="navigate('${key}')" class="nav-btn flex items-center gap-3 w-full px-4 py-2.5 rounded-2xl text-sm font-medium text-slate-500 hover:bg-sky-50 hover:text-sky-500 transition">
+      <i data-lucide="${item.icon}" class="w-5 h-5"></i> ${item.label}
+    </button>`).join('');
+  $('#sidebarUserName').textContent = state.user.full_name;
+  $('#sidebarUserRole').textContent = roleLabel(state.user.role);
+  $('#sidebarAvatar').innerHTML = state.user.avatar_url
+    ? `<img src="${escapeHtml(state.user.avatar_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`
+    : `<i data-lucide="user" class="w-5 h-5 text-white"></i>`;
+  $('#topbarName').textContent = state.user.full_name;
+  $('#topbarAvatar').innerHTML = state.user.avatar_url
+    ? `<img src="${escapeHtml(state.user.avatar_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`
+    : `<span class="text-white text-sm font-semibold">${escapeHtml(state.user.full_name.charAt(0))}</span>`;
+  lucide.createIcons();
+}
+
+function buildBottomNav(){
+  const isAdmin = state.user.role === 'admin';
+  const keys = BOTTOM_NAV_KEYS.filter(k=>MENU_ITEMS[k].roles.includes(state.user.role));
+  let html = keys.slice(0,2).map(k=>navBtnHtml(k)).join('');
+  if(isAdmin){
+    html += `<button onclick="toggleAdminPanel()" class="flex flex-col items-center justify-center -mt-6">
+      <span class="w-14 h-14 rounded-full bg-gradient-to-br from-sky-300 to-pink-300 shadow-soft flex items-center justify-center text-white"><i data-lucide="layout-grid" class="w-6 h-6"></i></span>
+    </button>`;
+  }
+  html += keys.slice(2).map(k=>navBtnHtml(k)).join('');
+  $('#bottomNav').innerHTML = html;
+
+  if(isAdmin){
+    let grid = Object.entries(MENU_ITEMS).map(([key,item])=>`
+      <button onclick="navigate('${key}'); closeAdminPanel();" class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-slate-50 hover:bg-sky-50">
+        <i data-lucide="${item.icon}" class="w-6 h-6 text-sky-400"></i>
+        <span class="text-xs text-slate-500">${item.label}</span>
+      </button>`).join('');
+    grid += `<button onclick="openLogoutModal(); closeAdminPanel();" class="flex flex-col items-center gap-2 p-4 rounded-2xl bg-rose-50 hover:bg-rose-100">
+      <i data-lucide="log-out" class="w-6 h-6 text-rose-400"></i>
+      <span class="text-xs text-rose-500">ออกจากระบบ</span>
+    </button>`;
+    $('#adminPanelGrid').innerHTML = grid;
+  }
+  lucide.createIcons();
+}
+
+function openAdminPanel(){ $('#adminPanelOverlay').classList.remove('hidden'); $('#adminPanel').style.transform = 'translateY(0)'; }
+function closeAdminPanel(){ $('#adminPanelOverlay').classList.add('hidden'); $('#adminPanel').style.transform = 'translateY(100%)'; }
+function toggleAdminPanel(){ $('#adminPanelOverlay').classList.contains('hidden') ? openAdminPanel() : closeAdminPanel(); }
+
+function toggleUserMenu(){ $('#userMenu').classList.toggle('hidden'); }
+function closeUserMenu(){ $('#userMenu').classList.add('hidden'); }
+
+function updateActiveNav(){
+  $all('.nav-btn').forEach(btn=>{
+    const active = btn.dataset.view === state.currentView;
+    btn.classList.toggle('active-nav', active);
+    if(btn.closest('#bottomNav')) btn.classList.toggle('text-sky-500', active);
+  });
+}
+
+function navigate(view){
+  const item = MENU_ITEMS[view];
+  if(item && !item.roles.includes(state.user.role)){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); return; }
+  state.currentView = view;
+  closeAdminPanel();
+  closeUserMenu();
+  $('#pageTitle').textContent = item ? item.label : '';
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, materials: renderMaterials, assets: renderAssets, requests: renderRequests, profile: renderProfile };
+  renderers[view] && renderers[view]();
+  updateActiveNav();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+
+// ---------------------------------------------------------------------------
+// Generic modal / confirm
+// ---------------------------------------------------------------------------
+function openModal(title, bodyHtml, size='max-w-lg'){
+  $('#modalBox').className = `bg-white rounded-3xl shadow-soft w-full ${size} max-h-[90vh] overflow-y-auto p-6`;
+  $('#modalBox').style.animation = 'popIn .2s ease';
+  $('#modalBox').innerHTML = `
+    <div class="flex items-center justify-between mb-4">
+      <h3 class="text-lg font-semibold text-slate-700">${escapeHtml(title)}</h3>
+      <button onclick="closeModal()" class="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center"><i data-lucide="x" class="w-5 h-5"></i></button>
+    </div>
+    <div id="modalBody">${bodyHtml}</div>`;
+  $('#modalOverlay').classList.remove('hidden'); $('#modalOverlay').classList.add('flex');
+  lucide.createIcons();
+}
+function closeModal(){ $('#modalOverlay').classList.add('hidden'); $('#modalOverlay').classList.remove('flex'); $('#modalBox').innerHTML=''; }
+
+let _confirmCallback = null;
+function confirmAction(message, cb){
+  $('#confirmMessage').textContent = message;
+  _confirmCallback = cb;
+  $('#confirmModal').classList.remove('hidden'); $('#confirmModal').classList.add('flex');
+}
+function closeConfirm(){ $('#confirmModal').classList.add('hidden'); $('#confirmModal').classList.remove('flex'); _confirmCallback = null; }
+
+// ---------------------------------------------------------------------------
+// Dashboard
+// ---------------------------------------------------------------------------
+function renderDashboard(){
+  const isPriv = state.user.role !== 'employee';
+  const myRequests = state.requests.filter(r=>r.requester_id===state.user.id);
+  const pending = state.requests.filter(r=>r.status==='รออนุมัติ');
+  const lowStock = state.materials.filter(m=>Number(m.quantity)<=Number(m.min_quantity));
+  const statCards = isPriv ? [
+    {label:'พนักงานทั้งหมด', value:state.users.length, icon:'users', color:'sky'},
+    {label:'ครุภัณฑ์ทั้งหมด', value:state.assets.length, icon:'monitor', color:'pink'},
+    {label:'วัสดุใกล้หมด', value:lowStock.length, icon:'alert-triangle', color:'amber'},
+    {label:'คำร้องรออนุมัติ', value:pending.length, icon:'clock', color:'violet'},
+  ] : [
+    {label:'คำร้องของฉัน', value:myRequests.length, icon:'clipboard-list', color:'sky'},
+    {label:'รออนุมัติ', value:myRequests.filter(r=>r.status==='รออนุมัติ').length, icon:'clock', color:'amber'},
+    {label:'อนุมัติแล้ว', value:myRequests.filter(r=>r.status==='อนุมัติ').length, icon:'check-circle', color:'emerald'},
+    {label:'ไม่อนุมัติ', value:myRequests.filter(r=>r.status==='ไม่อนุมัติ').length, icon:'x-circle', color:'rose'},
+  ];
+  const listForTable = isPriv ? state.requests : myRequests;
+
+  $('#mainContent').innerHTML = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      ${statCards.map(s=>`
+        <div class="card flex items-center gap-3">
+          <div class="w-11 h-11 rounded-2xl bg-${s.color}-100 text-${s.color}-500 flex items-center justify-center shrink-0"><i data-lucide="${s.icon}" class="w-5 h-5"></i></div>
+          <div class="min-w-0"><p class="text-xl font-bold text-slate-700">${s.value}</p><p class="text-xs text-slate-400 truncate">${s.label}</p></div>
+        </div>`).join('')}
+    </div>
+    <div class="grid lg:grid-cols-2 gap-5 mb-6">
+      <div class="card"><canvas id="chartAssetStatus" height="220"></canvas></div>
+      <div class="card"><canvas id="chartMaterialCategory" height="220"></canvas></div>
+    </div>
+    <div class="card">
+      <h3 class="font-semibold text-slate-600 mb-3">คำร้องล่าสุด</h3>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead><tr class="text-slate-400 text-left border-b border-slate-100">
+            <th class="py-2 pr-3">รหัส</th><th class="py-2 pr-3">ผู้ขอ</th><th class="py-2 pr-3">ประเภท</th><th class="py-2 pr-3">สถานะ</th><th class="py-2">วันที่</th>
+          </tr></thead>
+          <tbody>
+            ${listForTable.slice(0,5).map(r=>`
+              <tr class="border-b border-slate-50">
+                <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.request_code||'-')}</td>
+                <td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>
+                <td class="py-2 pr-3">${escapeHtml(r.request_type)}</td>
+                <td class="py-2 pr-3">${statusBadge(r.status)}</td>
+                <td class="py-2 text-slate-400">${formatDate(r.created_at)}</td>
+              </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีคำร้อง</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  lucide.createIcons();
+  renderDashboardCharts();
+}
+
+function renderDashboardCharts(){
+  const statusCounts = {};
+  state.assets.forEach(a=>statusCounts[a.status]=(statusCounts[a.status]||0)+1);
+  const ctx1 = document.getElementById('chartAssetStatus');
+  if(state.charts.status) state.charts.status.destroy();
+  if(ctx1) state.charts.status = new Chart(ctx1, {
+    type:'doughnut',
+    data:{ labels: Object.keys(statusCounts).length?Object.keys(statusCounts):['ไม่มีข้อมูล'], datasets:[{ data: Object.keys(statusCounts).length?Object.values(statusCounts):[1], backgroundColor:['#93C5FD','#FDA4AF','#FCD34D','#A7F3D0'] }] },
+    options:{ plugins:{ legend:{position:'bottom'}, title:{display:true,text:'สถานะครุภัณฑ์'} } }
+  });
+
+  const catCounts = {};
+  state.materials.forEach(m=>{ const c = m.category||'อื่นๆ'; catCounts[c] = (catCounts[c]||0) + Number(m.quantity||0); });
+  const ctx2 = document.getElementById('chartMaterialCategory');
+  if(state.charts.category) state.charts.category.destroy();
+  if(ctx2) state.charts.category = new Chart(ctx2, {
+    type:'bar',
+    data:{ labels: Object.keys(catCounts).length?Object.keys(catCounts):['ไม่มีข้อมูล'], datasets:[{ label:'จำนวนคงเหลือ', data: Object.keys(catCounts).length?Object.values(catCounts):[0], backgroundColor:'#C4B5FD', borderRadius:8 }] },
+    options:{ plugins:{ legend:{display:false}, title:{display:true,text:'วัสดุคงเหลือตามหมวดหมู่'} } }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Employees (admin only)
+// ---------------------------------------------------------------------------
+function renderEmployees(){
+  $('#mainContent').innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="empSearch" oninput="renderEmployeeTable()" placeholder="ค้นหาพนักงาน..." class="input-field pl-9">
+      </div>
+      <div class="flex gap-2">
+        <button onclick="exportCSV(state.users,'employees.csv',['employee_code','full_name','username','role','department','position','phone','email'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>
+        <button onclick="openUserModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มพนักงาน</button>
+      </div>
+    </div>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3"></th><th class="py-2 pr-3">ชื่อ-สกุล</th><th class="py-2 pr-3">Username</th><th class="py-2 pr-3">สิทธิ์</th><th class="py-2 pr-3">แผนก</th><th class="py-2 pr-3">สถานะ</th><th class="py-2">จัดการ</th>
+    </tr></thead><tbody id="empTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderEmployeeTable();
+}
+
+function renderEmployeeTable(){
+  const q = ($('#empSearch')?.value||'').toLowerCase();
+  const rows = state.users.filter(u=>!q || u.full_name.toLowerCase().includes(q) || u.username.toLowerCase().includes(q));
+  $('#empTableBody').innerHTML = rows.map(u=>`
+    <tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3"><div class="w-9 h-9 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center">${u.avatar_url?`<img src="${escapeHtml(u.avatar_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="user" class="w-4 h-4 text-slate-300"></i>`}</div></td>
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(u.full_name)}${u.id===state.user.id?' <span class="text-[10px] text-sky-400">(คุณ)</span>':''}</td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(u.username)}</td>
+      <td class="py-2 pr-3">${roleBadge(u.role)}</td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(u.department||'-')}</td>
+      <td class="py-2 pr-3">${u.is_active?'<span class="badge bg-emerald-100 text-emerald-600">ใช้งาน</span>':'<span class="badge bg-slate-200 text-slate-500">ปิดใช้งาน</span>'}</td>
+      <td class="py-2"><div class="flex gap-2">
+        <button onclick="openUserModal('${u.id}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+        <button onclick="deleteUser('${u.id}')" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
+      </div></td>
+    </tr>`).join('') || `<tr><td colspan="7" class="py-8 text-center text-slate-300">ไม่พบข้อมูล</td></tr>`;
+  lucide.createIcons();
+}
+
+function openUserModal(id){
+  const record = id ? state.users.find(u=>u.id===id) : null;
+  const isEdit = !!record;
+  const canEditRole = state.user.role === 'admin';
+  openModal(isEdit?'แก้ไขข้อมูลพนักงาน':'เพิ่มพนักงานใหม่', `
+    <form id="userForm" class="space-y-3">
+      <div>
+        <label class="text-sm text-slate-500">รูปโปรไฟล์</label>
+        <div class="flex items-center gap-3 mt-1">
+          <div id="avatarPreview" class="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">${record?.avatar_url ? `<img src="${escapeHtml(record.avatar_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">` : `<i data-lucide="user" class="w-7 h-7 text-slate-300"></i>`}</div>
+          <input type="file" id="userAvatarFile" accept="image/*" class="text-xs" onchange="previewFile(this,'avatarPreview')">
+        </div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div><label class="text-sm text-slate-500">รหัสพนักงาน</label><input id="f_employee_code" value="${escapeHtml(record?.employee_code||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ชื่อ-สกุล *</label><input id="f_full_name" required value="${escapeHtml(record?.full_name||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ชื่อผู้ใช้ *</label><input id="f_username" required value="${escapeHtml(record?.username||'')}" class="input-field"></div>
+        <div>
+          <label class="text-sm text-slate-500">${isEdit?'รหัสผ่านใหม่ (เว้นว่างถ้าไม่เปลี่ยน)':'รหัสผ่าน *'}</label>
+          <div class="relative">
+            <input id="f_password" type="password" ${isEdit?'':'required'} class="input-field pr-9">
+            <button type="button" onclick="togglePwd('f_password',this)" class="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400"><i data-lucide="eye" class="w-4 h-4"></i></button>
+          </div>
+        </div>
+        <div>
+          <label class="text-sm text-slate-500">สิทธิ์การใช้งาน</label>
+          <select id="f_role" class="input-field" ${canEditRole?'':'disabled'}>
+            <option value="employee" ${record?.role==='employee'?'selected':''}>Employee</option>
+            <option value="staff" ${record?.role==='staff'?'selected':''}>เจ้าหน้าที่พัสดุ</option>
+            <option value="admin" ${record?.role==='admin'?'selected':''}>Admin</option>
+          </select>
+        </div>
+        <div><label class="text-sm text-slate-500">แผนก</label><input id="f_department" value="${escapeHtml(record?.department||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ตำแหน่ง</label><input id="f_position" value="${escapeHtml(record?.position||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">เบอร์โทร</label><input id="f_phone" value="${escapeHtml(record?.phone||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">อีเมล</label><input id="f_email" type="email" value="${escapeHtml(record?.email||'')}" class="input-field"></div>
+        ${canEditRole && isEdit ? `
+        <div class="flex items-center gap-2 mt-1 sm:col-span-2">
+          <input type="checkbox" id="f_is_active" ${record?.is_active!==false?'checked':''} class="w-4 h-4 rounded">
+          <label for="f_is_active" class="text-sm text-slate-500">เปิดใช้งานบัญชี</label>
+        </div>` : ''}
+      </div>
+      <div class="flex justify-end gap-2 pt-3">
+        <button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button>
+        <button type="submit" class="btn-primary">บันทึก</button>
+      </div>
+    </form>
+  `);
+  if(!canEditRole){ $('#f_role').disabled = true; }
+  $('#userForm').onsubmit = e => submitUserForm(e, record);
+}
+
+async function submitUserForm(e, record){
+  e.preventDefault();
+  showLoader();
+  try{
+    const payload = {
+      employee_code: $('#f_employee_code').value.trim() || null,
+      full_name: $('#f_full_name').value.trim(),
+      username: $('#f_username').value.trim(),
+      department: $('#f_department').value.trim() || null,
+      position: $('#f_position').value.trim() || null,
+      phone: $('#f_phone').value.trim() || null,
+      email: $('#f_email').value.trim() || null,
+    };
+    if(state.user.role === 'admin'){
+      payload.role = $('#f_role').value;
+      if(record) payload.is_active = $('#f_is_active').checked;
+    }
+    const pwd = $('#f_password').value;
+    if(pwd) payload.password_hash = await sha256(pwd);
+    const file = $('#userAvatarFile').files[0];
+    if(file) payload.avatar_url = await uploadImage(file, 'avatars');
+
+    if(record){
+      const { data, error } = await dbClient.from('users').update(payload).eq('id', record.id).select().single();
+      if(error) throw error;
+      Object.assign(record, data);
+      if(state.user.id === record.id){
+        const updated = { ...state.user, ...data }; delete updated.password_hash;
+        state.user = updated; persistSession(); buildSidebar();
+      }
+    } else {
+      if(!pwd){ showToast('กรุณากรอกรหัสผ่าน','error'); hideLoader(); return; }
+      payload.role = payload.role || 'employee';
+      const { data, error } = await dbClient.from('users').insert(payload).select().single();
+      if(error) throw error;
+      state.users.unshift(data);
+    }
+    closeModal();
+    if(state.currentView==='employees') renderEmployeeTable();
+    if(state.currentView==='profile') renderProfile();
+    showToast('บันทึกข้อมูลสำเร็จ','success');
+  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+function deleteUser(id){
+  if(id === state.user.id){ showToast('ไม่สามารถลบบัญชีของตัวเองได้','error'); return; }
+  confirmAction('ยืนยันการลบพนักงานนี้ใช่หรือไม่?', async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('users').delete().eq('id', id);
+      if(error) throw error;
+      state.users = state.users.filter(u=>u.id!==id);
+      renderEmployeeTable();
+      showToast('ลบข้อมูลสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Materials
+// ---------------------------------------------------------------------------
+function renderMaterials(){
+  const canManage = state.user.role !== 'employee';
+  $('#mainContent').innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="matSearch" oninput="renderMaterialGrid()" placeholder="ค้นหาวัสดุ..." class="input-field pl-9">
+      </div>
+      <div class="flex gap-2">
+        ${state.user.role==='admin'?`<button onclick="exportCSV(state.materials,'materials.csv',['item_code','name','category','unit','quantity','min_quantity'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        ${canManage?`<button onclick="openMaterialModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มวัสดุ</button>`:''}
+      </div>
+    </div>
+    <div id="matGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+  `;
+  lucide.createIcons();
+  renderMaterialGrid();
+}
+
+function renderMaterialGrid(){
+  const q = ($('#matSearch')?.value||'').toLowerCase();
+  const canManage = state.user.role !== 'employee';
+  const list = state.materials.filter(m=>!q || m.name.toLowerCase().includes(q) || (m.category||'').toLowerCase().includes(q) || (m.item_code||'').toLowerCase().includes(q));
+  $('#matGrid').innerHTML = list.map(m=>{
+    const low = Number(m.quantity) <= Number(m.min_quantity);
+    return `<div class="card">
+      <div class="w-full h-28 rounded-2xl overflow-hidden bg-slate-100 mb-3 flex items-center justify-center">${m.image_url?`<img src="${escapeHtml(m.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="package" class="w-8 h-8 text-slate-300"></i>`}</div>
+      <p class="text-xs text-slate-400">${escapeHtml(m.item_code||'-')}</p>
+      <p class="font-medium text-slate-700 truncate">${escapeHtml(m.name)}</p>
+      <p class="text-xs text-slate-400 mb-2">${escapeHtml(m.category||'ไม่ระบุหมวดหมู่')}</p>
+      <div class="mb-3"><span class="badge ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${m.quantity} ${escapeHtml(m.unit)}${low?' (ใกล้หมด)':''}</span></div>
+      <div class="flex gap-2">
+        <button onclick="openRequestModal('เบิกวัสดุ','${m.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="send" class="w-3.5 h-3.5"></i>ขอเบิก</button>
+        ${canManage?`<button onclick="openMaterialModal('${m.id}')" class="w-9 h-9 rounded-xl bg-sky-50 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+        <button onclick="deleteMaterial('${m.id}')" class="w-9 h-9 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+      </div>
+    </div>`;
+  }).join('') || `<p class="col-span-full text-center text-slate-300 py-10">ไม่พบข้อมูลวัสดุ</p>`;
+  lucide.createIcons();
+}
+
+function openMaterialModal(id){
+  const record = id ? state.materials.find(m=>m.id===id) : null;
+  const canEdit = state.user.role !== 'employee';
+  const categories = [...new Set(state.materials.map(m=>m.category).filter(Boolean))];
+  openModal(record?'แก้ไขข้อมูลวัสดุ':'เพิ่มวัสดุใหม่', `
+    <form id="materialForm" class="space-y-3">
+      <div>
+        <label class="text-sm text-slate-500">รูปภาพ</label>
+        <div class="flex items-center gap-3 mt-1">
+          <div id="matImgPreview" class="w-20 h-20 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">${record?.image_url?`<img src="${escapeHtml(record.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="image" class="w-7 h-7 text-slate-300"></i>`}</div>
+          <input type="file" id="matImageFile" accept="image/*" class="text-xs" onchange="previewFile(this,'matImgPreview')">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-sm text-slate-500">รหัสวัสดุ</label><input id="f_item_code" value="${escapeHtml(record?.item_code||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ชื่อวัสดุ *</label><input id="f_name" required value="${escapeHtml(record?.name||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">หมวดหมู่</label><input id="f_category" value="${escapeHtml(record?.category||'')}" class="input-field" list="matCategoryList"></div>
+        <div><label class="text-sm text-slate-500">หน่วยนับ</label><input id="f_unit" value="${escapeHtml(record?.unit||'ชิ้น')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">จำนวนคงเหลือ</label><input id="f_quantity" type="number" step="0.01" value="${record?.quantity??0}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">จุดสั่งซื้อขั้นต่ำ</label><input id="f_min_quantity" type="number" step="0.01" value="${record?.min_quantity??0}" class="input-field"></div>
+      </div>
+      <div><label class="text-sm text-slate-500">รายละเอียด</label><textarea id="f_description" rows="2" class="input-field">${escapeHtml(record?.description||'')}</textarea></div>
+      <datalist id="matCategoryList">${categories.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">บันทึก</button></div>
+    </form>
+  `);
+  if(!canEdit){ $all('#materialForm input, #materialForm textarea').forEach(el=>el.disabled=true); }
+  $('#materialForm').onsubmit = e => submitMaterialForm(e, record);
+}
+
+async function submitMaterialForm(e, record){
+  e.preventDefault();
+  showLoader();
+  try{
+    const payload = {
+      item_code: $('#f_item_code').value.trim() || null,
+      name: $('#f_name').value.trim(),
+      category: $('#f_category').value.trim() || null,
+      unit: $('#f_unit').value.trim() || 'ชิ้น',
+      quantity: Number($('#f_quantity').value) || 0,
+      min_quantity: Number($('#f_min_quantity').value) || 0,
+      description: $('#f_description').value.trim() || null,
+    };
+    const file = $('#matImageFile').files[0];
+    if(file) payload.image_url = await uploadImage(file, 'materials');
+    if(record){
+      const { data, error } = await dbClient.from('materials').update(payload).eq('id', record.id).select().single();
+      if(error) throw error;
+      Object.assign(record, data);
+    } else {
+      payload.created_by = state.user.id;
+      const { data, error } = await dbClient.from('materials').insert(payload).select().single();
+      if(error) throw error;
+      state.materials.unshift(data);
+    }
+    closeModal(); renderMaterials(); showToast('บันทึกสำเร็จ','success');
+  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+function deleteMaterial(id){
+  confirmAction('ยืนยันการลบวัสดุนี้ใช่หรือไม่?', async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('materials').delete().eq('id', id);
+      if(error) throw error;
+      state.materials = state.materials.filter(m=>m.id!==id);
+      renderMaterials(); showToast('ลบสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fixed Assets
+// ---------------------------------------------------------------------------
+function renderAssets(){
+  const canManage = state.user.role !== 'employee';
+  $('#mainContent').innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="assetSearch" oninput="renderAssetGrid()" placeholder="ค้นหาครุภัณฑ์..." class="input-field pl-9">
+      </div>
+      <div class="flex gap-2">
+        ${state.user.role==='admin'?`<button onclick="exportCSV(state.assets,'assets.csv',['asset_code','name','category','brand_model','serial_number','status','location'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        ${canManage?`<button onclick="openAssetModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มครุภัณฑ์</button>`:''}
+      </div>
+    </div>
+    <div id="assetGrid" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+  `;
+  lucide.createIcons();
+  renderAssetGrid();
+}
+
+function renderAssetGrid(){
+  const q = ($('#assetSearch')?.value||'').toLowerCase();
+  const canManage = state.user.role !== 'employee';
+  const list = state.assets.filter(a=>!q || a.name.toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.asset_code||'').toLowerCase().includes(q));
+  $('#assetGrid').innerHTML = list.map(a=>`
+    <div class="card">
+      <div class="w-full h-28 rounded-2xl overflow-hidden bg-slate-100 mb-3 flex items-center justify-center">${a.image_url?`<img src="${escapeHtml(a.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="monitor" class="w-8 h-8 text-slate-300"></i>`}</div>
+      <p class="text-xs text-slate-400">${escapeHtml(a.asset_code||'-')}</p>
+      <p class="font-medium text-slate-700 truncate">${escapeHtml(a.name)}</p>
+      <p class="text-xs text-slate-400 mb-2">${escapeHtml(a.category||'ไม่ระบุหมวดหมู่')} · ${escapeHtml(a.location||'-')}</p>
+      <div class="mb-3">${statusBadge(a.status)}</div>
+      <div class="flex gap-2 flex-wrap">
+        <button onclick="openRequestModal('ยืมครุภัณฑ์',null,'${a.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="hand" class="w-3.5 h-3.5"></i>ยืม</button>
+        <button onclick="openRequestModal('แจ้งซ่อม',null,'${a.id}')" class="flex-1 btn-secondary !py-2 justify-center gap-1 text-xs"><i data-lucide="wrench" class="w-3.5 h-3.5"></i>แจ้งซ่อม</button>
+        ${canManage?`<button onclick="openAssetModal('${a.id}')" class="w-9 h-9 rounded-xl bg-sky-50 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="pencil" class="w-4 h-4"></i></button>
+        <button onclick="deleteAsset('${a.id}')" class="w-9 h-9 rounded-xl bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+      </div>
+    </div>`).join('') || `<p class="col-span-full text-center text-slate-300 py-10">ไม่พบข้อมูลครุภัณฑ์</p>`;
+  lucide.createIcons();
+}
+
+function openAssetModal(id){
+  const record = id ? state.assets.find(a=>a.id===id) : null;
+  const canEdit = state.user.role !== 'employee';
+  openModal(record?'แก้ไขครุภัณฑ์':'เพิ่มครุภัณฑ์ใหม่', `
+    <form id="assetForm" class="space-y-3">
+      <div>
+        <label class="text-sm text-slate-500">รูปภาพ</label>
+        <div class="flex items-center gap-3 mt-1">
+          <div id="assetImgPreview" class="w-20 h-20 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">${record?.image_url?`<img src="${escapeHtml(record.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="image" class="w-7 h-7 text-slate-300"></i>`}</div>
+          <input type="file" id="assetImageFile" accept="image/*" class="text-xs" onchange="previewFile(this,'assetImgPreview')">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-sm text-slate-500">รหัสครุภัณฑ์</label><input id="f_asset_code" value="${escapeHtml(record?.asset_code||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ชื่อครุภัณฑ์ *</label><input id="f_name" required value="${escapeHtml(record?.name||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">หมวดหมู่</label><input id="f_category" value="${escapeHtml(record?.category||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ยี่ห้อ/รุ่น</label><input id="f_brand_model" value="${escapeHtml(record?.brand_model||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">Serial Number</label><input id="f_serial_number" value="${escapeHtml(record?.serial_number||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">วันที่ซื้อ</label><input id="f_purchase_date" type="date" value="${record?.purchase_date||''}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ราคา (บาท)</label><input id="f_purchase_price" type="number" step="0.01" value="${record?.purchase_price??''}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">สถานะ</label>
+          <select id="f_status" class="input-field">${['ใช้งานปกติ','ชำรุด','ซ่อมบำรุง','จำหน่ายแล้ว'].map(s=>`<option ${record?.status===s?'selected':''}>${s}</option>`).join('')}</select>
+        </div>
+        <div><label class="text-sm text-slate-500">สถานที่ตั้ง</label><input id="f_location" value="${escapeHtml(record?.location||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">ผู้รับผิดชอบ</label>
+          <select id="f_responsible" class="input-field">
+            <option value="">- ไม่ระบุ -</option>
+            ${state.users.map(u=>`<option value="${u.id}" ${record?.responsible_user_id===u.id?'selected':''}>${escapeHtml(u.full_name)}</option>`).join('')}
+          </select>
+        </div>
+      </div>
+      <div><label class="text-sm text-slate-500">รายละเอียด</label><textarea id="f_description" rows="2" class="input-field">${escapeHtml(record?.description||'')}</textarea></div>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">บันทึก</button></div>
+    </form>
+  `);
+  if(!canEdit){ $all('#assetForm input, #assetForm textarea, #assetForm select').forEach(el=>el.disabled=true); }
+  $('#assetForm').onsubmit = e => submitAssetForm(e, record);
+}
+
+async function submitAssetForm(e, record){
+  e.preventDefault();
+  showLoader();
+  try{
+    const payload = {
+      asset_code: $('#f_asset_code').value.trim() || null,
+      name: $('#f_name').value.trim(),
+      category: $('#f_category').value.trim() || null,
+      brand_model: $('#f_brand_model').value.trim() || null,
+      serial_number: $('#f_serial_number').value.trim() || null,
+      purchase_date: $('#f_purchase_date').value || null,
+      purchase_price: $('#f_purchase_price').value ? Number($('#f_purchase_price').value) : null,
+      status: $('#f_status').value,
+      location: $('#f_location').value.trim() || null,
+      responsible_user_id: $('#f_responsible').value || null,
+      description: $('#f_description').value.trim() || null,
+    };
+    const file = $('#assetImageFile').files[0];
+    if(file) payload.image_url = await uploadImage(file, 'assets');
+    if(record){
+      const { data, error } = await dbClient.from('fixed_assets').update(payload).eq('id', record.id).select().single();
+      if(error) throw error;
+      Object.assign(record, data);
+    } else {
+      payload.created_by = state.user.id;
+      const { data, error } = await dbClient.from('fixed_assets').insert(payload).select().single();
+      if(error) throw error;
+      state.assets.unshift(data);
+    }
+    closeModal(); renderAssets(); showToast('บันทึกสำเร็จ','success');
+  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+function deleteAsset(id){
+  confirmAction('ยืนยันการลบครุภัณฑ์นี้ใช่หรือไม่?', async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('fixed_assets').delete().eq('id', id);
+      if(error) throw error;
+      state.assets = state.assets.filter(a=>a.id!==id);
+      renderAssets(); showToast('ลบสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Requests
+// ---------------------------------------------------------------------------
+function openRequestModal(presetType, materialId, assetId){
+  openModal('สร้างคำร้องใหม่', `
+    <form id="requestForm" class="space-y-3">
+      <div>
+        <label class="text-sm text-slate-500">ประเภทคำร้อง</label>
+        <select id="f_request_type" class="input-field" onchange="toggleRequestItemField()">
+          ${['เบิกวัสดุ','ยืมครุภัณฑ์','แจ้งซ่อม','อื่นๆ'].map(t=>`<option ${presetType===t?'selected':''}>${t}</option>`).join('')}
+        </select>
+      </div>
+      <div id="requestItemField"></div>
+      <div><label class="text-sm text-slate-500">จำนวน</label><input id="f_quantity" type="number" min="1" value="1" class="input-field"></div>
+      <div><label class="text-sm text-slate-500">เหตุผล/รายละเอียด</label><textarea id="f_reason" rows="2" required class="input-field" placeholder="ระบุเหตุผลในการขอ..."></textarea></div>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">ส่งคำร้อง</button></div>
+    </form>
+  `);
+  toggleRequestItemField(materialId, assetId);
+  $('#requestForm').onsubmit = submitRequestForm;
+}
+
+function toggleRequestItemField(materialId, assetId){
+  const type = $('#f_request_type').value;
+  const box = $('#requestItemField');
+  if(type === 'เบิกวัสดุ'){
+    box.innerHTML = `<label class="text-sm text-slate-500">รายการวัสดุ</label><select id="f_material_id" class="input-field">${state.materials.map(m=>`<option value="${m.id}" ${materialId===m.id?'selected':''}>${escapeHtml(m.name)} (คงเหลือ ${m.quantity} ${escapeHtml(m.unit)})</option>`).join('')}</select>`;
+  } else if(type === 'ยืมครุภัณฑ์' || type === 'แจ้งซ่อม'){
+    box.innerHTML = `<label class="text-sm text-slate-500">รายการครุภัณฑ์</label><select id="f_asset_id" class="input-field">${state.assets.map(a=>`<option value="${a.id}" ${assetId===a.id?'selected':''}>${escapeHtml(a.name)} (${escapeHtml(a.asset_code||'-')})</option>`).join('')}</select>`;
+  } else {
+    box.innerHTML = '';
+  }
+}
+
+async function submitRequestForm(e){
+  e.preventDefault();
+  showLoader();
+  try{
+    const type = $('#f_request_type').value;
+    const payload = {
+      request_code: 'REQ-' + Date.now().toString().slice(-8),
+      requester_id: state.user.id,
+      request_type: type,
+      material_id: type==='เบิกวัสดุ' ? ($('#f_material_id')?.value || null) : null,
+      fixed_asset_id: (type==='ยืมครุภัณฑ์'||type==='แจ้งซ่อม') ? ($('#f_asset_id')?.value || null) : null,
+      quantity: Number($('#f_quantity').value) || 1,
+      reason: $('#f_reason').value.trim(),
+      status: 'รออนุมัติ',
+    };
+    const { data, error } = await dbClient.from('requests').insert(payload).select().single();
+    if(error) throw error;
+    state.requests.unshift(data);
+    closeModal();
+    if(state.currentView==='requests') renderRequests();
+    else if(state.currentView==='dashboard') renderDashboard();
+    showToast('ส่งคำร้องสำเร็จ รอการอนุมัติ','success');
+  }catch(err){ showToast('ส่งคำร้องไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+function renderRequests(){
+  const isPriv = state.user.role !== 'employee';
+  $('#mainContent').innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="reqSearch" oninput="renderRequestTable()" placeholder="ค้นหาคำร้อง..." class="input-field pl-9">
+      </div>
+      <div class="flex gap-2">
+        ${state.user.role==='admin'?`<button onclick="exportCSV(state.requests,'requests.csv',['request_code','request_type','quantity','status','created_at'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        <button onclick="openRequestModal('เบิกวัสดุ')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างคำร้อง</button>
+      </div>
+    </div>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">รหัส</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">ประเภท</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
+    </tr></thead><tbody id="reqTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderRequestTable();
+}
+
+function renderRequestTable(){
+  const isPriv = state.user.role !== 'employee';
+  const q = ($('#reqSearch')?.value||'').toLowerCase();
+  let list = isPriv ? state.requests : state.requests.filter(r=>r.requester_id===state.user.id);
+  list = list.filter(r=>!q || (r.request_code||'').toLowerCase().includes(q) || r.request_type.toLowerCase().includes(q));
+  $('#reqTableBody').innerHTML = list.map(r=>`
+    <tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.request_code)}</td>
+      ${isPriv?`<td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>`:''}
+      <td class="py-2 pr-3">${escapeHtml(r.request_type)}</td>
+      <td class="py-2 pr-3">${escapeHtml(requestItemLabel(r))}</td>
+      <td class="py-2 pr-3">${r.quantity}</td>
+      <td class="py-2 pr-3">${statusBadge(r.status)}</td>
+      <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
+      <td class="py-2"><div class="flex gap-2">
+        ${isPriv && r.status==='รออนุมัติ' ? `
+          <button onclick="approveRequest('${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
+          <button onclick="approveRequest('${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
+        ${(!isPriv && r.requester_id===state.user.id && r.status==='รออนุมัติ')?`<button onclick="deleteRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ยกเลิกคำร้อง"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+        ${isPriv?`<button onclick="deleteRequest('${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>`:''}
+      </div></td>
+    </tr>`).join('') || `<tr><td colspan="8" class="py-8 text-center text-slate-300">ไม่พบคำร้อง</td></tr>`;
+  lucide.createIcons();
+}
+
+function approveRequest(id, approve){
+  confirmAction(approve?'ยืนยันการอนุมัติคำร้องนี้?':'ยืนยันไม่อนุมัติคำร้องนี้?', async ()=>{
+    showLoader();
+    try{
+      const payload = { status: approve?'อนุมัติ':'ไม่อนุมัติ', approved_by: state.user.id, approved_at: new Date().toISOString() };
+      const { data, error } = await dbClient.from('requests').update(payload).eq('id', id).select().single();
+      if(error) throw error;
+      const idx = state.requests.findIndex(r=>r.id===id);
+      if(idx>-1) state.requests[idx] = data;
+      if(approve && data.request_type==='เบิกวัสดุ' && data.material_id){
+        const mat = state.materials.find(m=>m.id===data.material_id);
+        if(mat){
+          const newQty = Math.max(0, Number(mat.quantity) - Number(data.quantity));
+          const { data: updatedMat } = await dbClient.from('materials').update({quantity:newQty}).eq('id', mat.id).select().single();
+          if(updatedMat) Object.assign(mat, updatedMat);
+        }
+      }
+      renderRequestTable();
+      showToast(approve?'อนุมัติคำร้องสำเร็จ':'ไม่อนุมัติคำร้อง','success');
+    }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+function deleteRequest(id){
+  confirmAction('ยืนยันการลบ/ยกเลิกคำร้องนี้?', async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('requests').delete().eq('id', id);
+      if(error) throw error;
+      state.requests = state.requests.filter(r=>r.id!==id);
+      renderRequestTable(); showToast('ลบสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Profile
+// ---------------------------------------------------------------------------
+function renderProfile(){
+  const u = state.user;
+  $('#mainContent').innerHTML = `
+    <div class="card max-w-xl mx-auto text-center">
+      <div class="w-24 h-24 rounded-3xl overflow-hidden bg-slate-100 mx-auto mb-4 flex items-center justify-center">${u.avatar_url?`<img src="${escapeHtml(u.avatar_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="user" class="w-10 h-10 text-slate-300"></i>`}</div>
+      <h3 class="text-lg font-semibold text-slate-700">${escapeHtml(u.full_name)}</h3>
+      <p class="text-sm text-slate-400 mb-3">${escapeHtml(u.username)} · ${roleLabel(u.role)}</p>
+      <div class="grid grid-cols-2 gap-3 text-left text-sm mb-5">
+        <div><p class="text-slate-400 text-xs">รหัสพนักงาน</p><p class="text-slate-600">${escapeHtml(u.employee_code||'-')}</p></div>
+        <div><p class="text-slate-400 text-xs">แผนก</p><p class="text-slate-600">${escapeHtml(u.department||'-')}</p></div>
+        <div><p class="text-slate-400 text-xs">ตำแหน่ง</p><p class="text-slate-600">${escapeHtml(u.position||'-')}</p></div>
+        <div><p class="text-slate-400 text-xs">เบอร์โทร</p><p class="text-slate-600">${escapeHtml(u.phone||'-')}</p></div>
+        <div class="col-span-2"><p class="text-slate-400 text-xs">อีเมล</p><p class="text-slate-600">${escapeHtml(u.email||'-')}</p></div>
+      </div>
+      <button onclick="openUserModal('${u.id}')" class="btn-primary">แก้ไขข้อมูลส่วนตัว</button>
+    </div>
+  `;
+  lucide.createIcons();
+}
+
+// ---------------------------------------------------------------------------
+// Init
+// ---------------------------------------------------------------------------
+document.addEventListener('DOMContentLoaded', async () => {
+  lucide.createIcons();
+
+  $('#loginForm').addEventListener('submit', e => {
+    e.preventDefault();
+    const u = $('#loginUsername').value.trim();
+    const p = $('#loginPassword').value;
+    const remember = $('#loginRemember').checked;
+    if(remember) localStorage.setItem('smartasset_remember_username', u);
+    else localStorage.removeItem('smartasset_remember_username');
+    handleLogin(u, p, remember);
+  });
+
+  $('#confirmActionBtn').addEventListener('click', () => {
+    const cb = _confirmCallback;
+    closeConfirm();
+    if(cb) cb();
+  });
+
+  $('#modalOverlay').addEventListener('click', e => { if(e.target.id === 'modalOverlay') closeModal(); });
+  $('#confirmModal').addEventListener('click', e => { if(e.target.id === 'confirmModal') closeConfirm(); });
+  document.addEventListener('click', e => { if(!e.target.closest('#userMenuWrap')) closeUserMenu(); });
+
+  if(restoreSession()){
+    await fetchAll();
+    enterApp();
+  } else {
+    showLanding();
+  }
+});
+</script>
+</body>
+</html>
