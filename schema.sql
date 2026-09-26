@@ -176,7 +176,7 @@ create table public.material_stock_transactions (
 );
 
 -- ----------------------------------------------------------------------------
--- 5e) TABLE: asset_repairs (ซ่อมบำรุงครุภัณฑ์) / asset_loans (ยืม-คืนครุภัณฑ์)
+-- 5e) TABLE: asset_repairs (ประวัติซ่อมบำรุงครุภัณฑ์ - บันทึกประวัติอย่างเดียว) / asset_loans (ยืม-คืนครุภัณฑ์)
 -- ----------------------------------------------------------------------------
 create table public.asset_repairs (
   id            uuid primary key default gen_random_uuid(),
@@ -184,7 +184,8 @@ create table public.asset_repairs (
   asset_id      uuid not null references public.fixed_assets(id) on delete cascade,
   reported_by   uuid not null references public.users(id) on delete cascade,
   problem       text not null,
-  status        text not null default 'แจ้งซ่อม' check (status in ('แจ้งซ่อม','กำลังซ่อม','ซ่อมเสร็จ','ซ่อมไม่ได้','ยกเลิก')),
+  repair_date   date not null default current_date,   -- วันที่ซ่อม
+  status        text not null default 'ซ่อมเสร็จ' check (status in ('แจ้งซ่อม','กำลังซ่อม','ซ่อมเสร็จ','ซ่อมไม่ได้','ยกเลิก')),
   vendor        text,
   started_at    timestamptz,
   completed_at  timestamptz,
