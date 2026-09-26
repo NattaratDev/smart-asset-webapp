@@ -1326,13 +1326,13 @@ function assetRepairHistoryHtml(a){
     .sort((x,y)=>new Date(x.date)-new Date(y.date));
   const rows = list.map(({r,date},i)=>{
     const detail = [r.problem, r.result_note ? 'ผล: '+r.result_note : '', r.vendor ? 'ผู้ซ่อม: '+r.vendor : ''].filter(Boolean).map(escapeHtml).join(' · ');
-    return `<tr style="height:11mm"><td style="text-align:center">${i+1}</td><td style="text-align:center">${shortThaiDate(date)}</td><td>${detail}</td><td style="text-align:right">${r.cost!=null ? fmtMoney(r.cost) : ''}</td><td style="font-size:11px">${escapeHtml(r.status)} (${escapeHtml(r.repair_code||'')})</td></tr>`;
+    return `<tr style="height:6mm"><td style="text-align:center">${i+1}</td><td style="text-align:center">${shortThaiDate(date)}</td><td>${detail}</td><td style="text-align:right">${r.cost!=null ? fmtMoney(r.cost) : ''}</td><td style="font-size:11px">${escapeHtml(r.status)} (${escapeHtml(r.repair_code||'')})</td></tr>`;
   });
-  while(rows.length < 10) rows.push('<tr style="height:11mm"><td></td><td></td><td></td><td></td><td></td></tr>');
+  while(rows.length < 26) rows.push('<tr style="height:6mm"><td></td><td></td><td></td><td></td><td></td></tr>');
   return `<div class="a4-sheet land">
     <div style="text-align:center;font-size:20px;font-weight:700">ประวัติการซ่อมบำรุงรักษาทรัพย์สิน</div>
     <div style="text-align:center;font-size:12px;color:#444;margin-bottom:2mm">${escapeHtml(a.asset_code||'')} ${escapeHtml(a.name)}</div>
-    <div class="ledger-fill"><table style="table-layout:fixed">
+    <div><table class="led1" style="table-layout:fixed;font-size:12px">
       <thead><tr><th style="width:22mm;height:9mm">ครั้งที่</th><th style="width:40mm">วัน เดือน ปี</th><th>รายการ</th><th style="width:40mm">จำนวนเงิน</th><th style="width:48mm">หมายเหตุ</th></tr></thead>
       <tbody>${rows.join('')}</tbody>
     </table></div>
