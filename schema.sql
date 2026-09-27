@@ -270,6 +270,8 @@ create table public.drug_stock_transactions (
   type                text not null check (type in ('รับเข้า','เบิกออก')),
   quantity            numeric not null check (quantity > 0),
   note                text,
+  lot_no              text,   -- เลข Lot/รุ่นการผลิต (กรอกตอนรับเข้าเท่านั้น)
+  expiry_date         date,   -- วันหมดอายุของล็อตที่รับเข้า (กรอกตอนรับเข้าเท่านั้น)
   reference_issue_id  uuid references public.drug_issue_requests(id) on delete set null,
   performed_by        uuid references public.users(id) on delete set null,
   created_at          timestamptz not null default now()

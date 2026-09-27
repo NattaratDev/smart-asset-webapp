@@ -3589,6 +3589,22 @@ function drugGK(group){ return group==='เวชภัณฑ์' ? 'med' : 'nme
 function drugItemsOf(group){ return state.drugItems.filter(x=>x.drug_group===group); }
 function drugRequestsOf(group){ return state.drugIssueRequests.filter(r=>r.drug_group===group); }
 function getDrugNameOnly(id){ const d = state.drugItems.find(x=>x.id===id); return d ? d.name : '-'; }
+function nearestDrugExpiry(itemId){
+  const dates = state.drugStockTx.filter(t=>t.item_id===itemId && t.type==='รับเข้า' && t.expiry_date).map(t=>t.expiry_date).sort();
+  if(!dates.length) return null;
+  const today = todayStr();
+  const upcoming = dates.find(d=>d>=today);
+  const date = upcoming || dates[dates.length-1];
+  const days = Math.round((new Date(date+'T00:00:00') - new Date(today+'T00:00:00')) / 86400000);
+  return { date, days, expired: days < 0 };
+}
+function drugExpiryBadge(itemId){
+  const ex = nearestDrugExpiry(itemId);
+  if(!ex) return '';
+  if(ex.expired) return `<span class="badge !px-2 !py-0.5 text-[10px] bg-rose-100 text-rose-600">หมดอายุแล้ว ${fmtDateOnly(ex.date)}</span>`;
+  if(ex.days <= 90) return `<span class="badge !px-2 !py-0.5 text-[10px] bg-amber-100 text-amber-600">ใกล้หมดอายุ (${ex.days} วัน)</span>`;
+  return '';
+}
 
 let drugSubView = { 'เวชภัณฑ์':'stock', 'เวชภัณฑ์มิใช่ยา':'stock' };
 let drugReceiveCart = { 'เวชภัณฑ์':[], 'เวชภัณฑ์มิใช่ยา':[] };
@@ -3643,6 +3659,11 @@ function renderDrugStock(group){
           <option value="">ทุกหมวดหมู่</option>
           ${cats.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
         </select>
+        <select id="drugExpiryFilter" onchange="renderDrugStockGrid('${group}')" class="input-field w-full sm:w-48">
+          <option value="">ทุกสถานะวันหมดอายุ</option>
+          <option value="soon">ใกล้หมดอายุ (≤90 วัน)</option>
+          <option value="expired">หมดอายุแล้ว</option>
+        </select>
       </div>
       ${canManage?`<button onclick="openDrugItemModal('${group}')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่ม${escapeHtml(group)}</button>`:''}
     </div>
@@ -3655,11 +3676,14 @@ function renderDrugStock(group){
 function renderDrugStockGrid(group){
   const q = ($('#drugSearch')?.value||'').toLowerCase();
   const cat = $('#drugCategoryFilter')?.value || '';
+  const expFilter = $('#drugExpiryFilter')?.value || '';
   const canManage = hasPerm(DRUG_VIEW_KEY[group],'edit');
   const list = drugItemsOf(group).filter(d=>{
     const matchQ = !q || d.name.toLowerCase().includes(q) || (d.category||'').toLowerCase().includes(q) || (d.item_code||'').toLowerCase().includes(q);
     const matchCat = !cat || d.category === cat;
-    return matchQ && matchCat;
+    const ex = nearestDrugExpiry(d.id);
+    const matchExp = !expFilter || (expFilter==='expired' ? (ex && ex.expired) : (ex && !ex.expired && ex.days<=90));
+    return matchQ && matchCat && matchExp;
   });
   $('#drugGrid').innerHTML = list.map(d=>{
     const low = Number(d.quantity) <= Number(d.min_quantity);
@@ -3675,6 +3699,7 @@ function renderDrugStockGrid(group){
       <div class="flex items-center gap-1 flex-wrap mb-2">
         <span class="badge !px-2 !py-0.5 text-[11px] ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${d.quantity} ${escapeHtml(d.unit)}${low?' (ใกล้หมด)':''}</span>
         ${d.is_active===false?'<span class="badge !px-2 !py-0.5 text-[10px] bg-slate-200 text-slate-500">ปิดใช้งาน</span>':''}
+        ${drugExpiryBadge(d.id)}
       </div>
       ${canManage?`<div class="flex gap-1.5">
         <button onclick="openDrugItemModal('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
@@ -3804,6 +3829,10 @@ function renderDrugReceive(group){
             </select>
           </div>
           <div><label class="text-sm text-slate-500">จำนวนที่รับเข้า</label><input id="drc_quantity" type="number" min="0.01" step="0.01" required class="input-field"></div>
+          <div class="grid grid-cols-2 gap-3">
+            <div><label class="text-sm text-slate-500">เลข Lot</label><input id="drc_lot" class="input-field"></div>
+            <div><label class="text-sm text-slate-500">วันหมดอายุ</label><input id="drc_expiry" type="date" class="input-field"></div>
+          </div>
           <div><label class="text-sm text-slate-500">หมายเหตุเฉพาะรายการ (ถ้ามี)</label><input id="drc_item_note" class="input-field"></div>
           <button type="submit" class="btn-secondary w-full justify-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มลงตะกร้า</button>
         </form>
@@ -3818,7 +3847,7 @@ function renderDrugReceive(group){
     <div class="card">
       <h3 class="font-semibold text-slate-600 mb-3">ประวัติการรับเข้าล่าสุด</h3>
       <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
-        <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">ผู้บันทึก</th><th class="py-2">หมายเหตุ</th>
+        <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">Lot</th><th class="py-2 pr-3">วันหมดอายุ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">ผู้บันทึก</th><th class="py-2">หมายเหตุ</th>
       </tr></thead><tbody id="drcHistoryBody"></tbody></table></div>
     </div>
   `;
@@ -3836,7 +3865,9 @@ function addToDrugReceiveCart(e, group){
   if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
   const item = state.drugItems.find(x=>x.id===itemId);
   if(!item) return;
-  drugReceiveCart[group].push({ tempId: crypto.randomUUID(), item_id: itemId, item_name: item.name, unit: item.unit, quantity: qty, note });
+  const lot = $('#drc_lot').value.trim() || null;
+  const expiry = $('#drc_expiry').value || null;
+  drugReceiveCart[group].push({ tempId: crypto.randomUUID(), item_id: itemId, item_name: item.name, unit: item.unit, quantity: qty, note, lot, expiry });
   $('#drugReceiveItemForm').reset();
   renderDrugReceiveCart(group);
   showToast('เพิ่มลงตะกร้าแล้ว','info');
@@ -3854,7 +3885,7 @@ function renderDrugReceiveCart(group){
     <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
       <div class="min-w-0">
         <p class="text-sm font-medium text-slate-700 truncate">${escapeHtml(c.item_name)}</p>
-        <p class="text-xs text-slate-400">${c.note?escapeHtml(c.note)+' · ':''}จำนวน <span class="text-emerald-600 font-medium">+${c.quantity}</span> ${escapeHtml(c.unit)}</p>
+        <p class="text-xs text-slate-400">${[c.lot?'Lot '+c.lot:'', c.expiry?'หมดอายุ '+fmtDateOnly(c.expiry):'', c.note].filter(Boolean).map(escapeHtml).join(' · ')}${c.lot||c.expiry||c.note?' · ':''}จำนวน <span class="text-emerald-600 font-medium">+${c.quantity}</span> ${escapeHtml(c.unit)}</p>
       </div>
       <button onclick="removeFromDrugReceiveCart('${group}','${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
     </div>`).join('') || `<p class="text-center text-slate-300 py-8 text-sm">ยังไม่มีรายการในตะกร้า เพิ่มรายการจากฟอร์มด้านซ้ายก่อนยืนยัน</p>`;
@@ -3873,7 +3904,7 @@ function openDrugReceiveConfirmModal(group){
         <div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm">
           <div class="min-w-0">
             <p class="text-slate-700 truncate">${escapeHtml(c.item_name)}</p>
-            ${c.note?`<p class="text-xs text-slate-400 truncate">${escapeHtml(c.note)}</p>`:''}
+            ${[c.lot?'Lot '+c.lot:'', c.expiry?'หมดอายุ '+fmtDateOnly(c.expiry):'', c.note].filter(Boolean).length?`<p class="text-xs text-slate-400 truncate">${[c.lot?'Lot '+c.lot:'', c.expiry?'หมดอายุ '+fmtDateOnly(c.expiry):'', c.note].filter(Boolean).map(escapeHtml).join(' · ')}</p>`:''}
           </div>
           <span class="font-medium text-emerald-600 shrink-0">+${c.quantity} ${escapeHtml(c.unit)}</span>
         </div>`).join('')}
@@ -3899,7 +3930,7 @@ async function submitDrugReceiveBatch(group){
     try{
       const note = [batchNote, it.note].filter(Boolean).join(' — ') || null;
       const { data: tx, error: e1 } = await dbClient.from('drug_stock_transactions').insert({
-        item_id: it.item_id, type:'รับเข้า', quantity: it.quantity, note, performed_by: state.user.id
+        item_id: it.item_id, type:'รับเข้า', quantity: it.quantity, note, lot_no: it.lot || null, expiry_date: it.expiry || null, performed_by: state.user.id
       }).select().single();
       if(e1) throw e1;
       state.drugStockTx.unshift(tx);
@@ -3926,14 +3957,22 @@ async function submitDrugReceiveBatch(group){
 function renderDrugReceiveHistory(group){
   const ids = new Set(drugItemsOf(group).map(x=>x.id));
   const rows = state.drugStockTx.filter(t=>t.type==='รับเข้า' && ids.has(t.item_id)).slice(0,15);
+  const expCell = t => {
+    if(!t.expiry_date) return '<span class="text-slate-300">-</span>';
+    const days = Math.round((new Date(t.expiry_date+'T00:00:00') - new Date(todayStr()+'T00:00:00')) / 86400000);
+    const cls = days < 0 ? 'text-rose-500 font-medium' : days <= 90 ? 'text-amber-600 font-medium' : 'text-slate-500';
+    return `<span class="${cls}">${fmtDateOnly(t.expiry_date)}</span>`;
+  };
   $('#drcHistoryBody').innerHTML = rows.map(t=>`
     <tr class="border-b border-slate-50">
       <td class="py-2 pr-3 text-slate-400">${formatDate(t.created_at)}</td>
       <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(getDrugNameOnly(t.item_id))}</td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(t.lot_no||'-')}</td>
+      <td class="py-2 pr-3">${expCell(t)}</td>
       <td class="py-2 pr-3 text-emerald-600 font-medium">+${t.quantity}</td>
       <td class="py-2 pr-3">${escapeHtml(getUserName(t.performed_by))}</td>
       <td class="py-2 text-slate-400">${escapeHtml(t.note||'-')}</td>
-    </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการรับเข้า</td></tr>`;
+    </tr>`).join('') || `<tr><td colspan="7" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการรับเข้า</td></tr>`;
 }
 
 // ---------- เบิก ----------
@@ -4418,7 +4457,7 @@ function drugStockCardRowsHtml(d){
   const body = d.rows.map(r=>`
     <tr class="border-b border-slate-50">
       <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${formatDate(r.tx.created_at)}</td>
-      <td class="py-2 pr-3">${r.tx.type==='เบิกออก'?'<span class="text-rose-500">จ่ายออก</span>':'<span class="text-emerald-600">รับเข้า</span>'}${r.tx.note?`<div class="text-xs text-slate-400">${escapeHtml(r.tx.note)}</div>`:''}</td>
+      <td class="py-2 pr-3">${r.tx.type==='เบิกออก'?'<span class="text-rose-500">จ่ายออก</span>':'<span class="text-emerald-600">รับเข้า</span>'}${[r.tx.lot_no?'Lot '+escapeHtml(r.tx.lot_no):'', r.tx.expiry_date?'หมดอายุ '+fmtDateOnly(r.tx.expiry_date):'', r.tx.note?escapeHtml(r.tx.note):''].filter(Boolean).length?`<div class="text-xs text-slate-400">${[r.tx.lot_no?'Lot '+escapeHtml(r.tx.lot_no):'', r.tx.expiry_date?'หมดอายุ '+fmtDateOnly(r.tx.expiry_date):'', r.tx.note?escapeHtml(r.tx.note):''].filter(Boolean).join(' · ')}</div>`:''}</td>
       <td class="py-2 pr-3 text-right text-emerald-600 font-medium">${r.in||''}</td>
       <td class="py-2 pr-3 text-right text-rose-500 font-medium">${r.out||''}</td>
       <td class="py-2 pr-3 text-right">${r.balance}</td>
@@ -4462,7 +4501,7 @@ function drugStockCardFormHtml(d){
   const item = d.item;
   const rows = d.rows.map(r=>`<tr>
     <td style="white-space:nowrap">${formatThaiLongDate(r.tx.created_at)}</td>
-    <td>${r.tx.type==='เบิกออก'?'จ่ายออก':'รับเข้า'}${r.tx.note?` - ${escapeHtml(r.tx.note)}`:''}</td>
+    <td>${r.tx.type==='เบิกออก'?'จ่ายออก':'รับเข้า'}${[r.tx.lot_no?'Lot '+r.tx.lot_no:'', r.tx.expiry_date?'หมดอายุ '+fmtDateOnly(r.tx.expiry_date):'', r.tx.note].filter(Boolean).length?` - ${[r.tx.lot_no?'Lot '+escapeHtml(r.tx.lot_no):'', r.tx.expiry_date?'หมดอายุ '+fmtDateOnly(r.tx.expiry_date):'', r.tx.note?escapeHtml(r.tx.note):''].filter(Boolean).join(' · ')}`:''}</td>
     <td style="text-align:right">${r.in||''}</td>
     <td style="text-align:right">${r.out||''}</td>
     <td style="text-align:right">${r.balance}</td>
@@ -4571,18 +4610,21 @@ function buildDrugReportCfg(group, kind){
     };
   }
   const list = drugItemsOf(group).filter(d=>!st.category||d.category===st.category).slice().sort((a,b)=>String(a.item_code).localeCompare(String(b.item_code)));
+  let nearExp = 0;
   const rows = list.map((d,i)=>{
     const later = st.asOf ? state.drugStockTx.filter(t=>t.item_id===d.id && String(t.created_at).slice(0,10)>st.asOf).reduce((s,t)=>s+drugTxNet(t),0) : 0;
     const bal = Number(d.quantity) - later;
-    return [i+1, d.item_code||'-', d.name, d.category||'-', bal, d.unit, bal<=Number(d.min_quantity)?'ใกล้หมด/หมด':'ปกติ'];
+    const ex = nearestDrugExpiry(d.id);
+    if(ex && (ex.expired || ex.days<=90)) nearExp++;
+    return [i+1, d.item_code||'-', d.name, d.category||'-', bal, d.unit, bal<=Number(d.min_quantity)?'ใกล้หมด/หมด':'ปกติ', ex ? (ex.expired?'หมดอายุแล้ว '+fmtDateOnly(ex.date):fmtDateOnly(ex.date)) : '-'];
   });
   return {
     title: `รายงาน${group}คงเหลือ`,
     meta: [['ข้อมูล ณ', st.asOf ? fmtDateOnly(st.asOf) : 'ปัจจุบัน'], ['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
-    headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'รหัส',w:'24mm'},{label:'รายการ'},{label:'หมวดหมู่',w:'30mm'},{label:'คงเหลือ',align:'right',w:'18mm'},{label:'หน่วย',w:'16mm'},{label:'สถานะ',w:'20mm'}],
+    headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'รหัส',w:'24mm'},{label:'รายการ'},{label:'หมวดหมู่',w:'28mm'},{label:'คงเหลือ',align:'right',w:'16mm'},{label:'หน่วย',w:'14mm'},{label:'สถานะ',w:'18mm'},{label:'วันหมดอายุใกล้สุด',w:'26mm'}],
     rows,
     footer: [],
-    summary: `ทั้งหมด ${rows.length} รายการ`,
+    summary: `ทั้งหมด ${rows.length} รายการ${nearExp?` · ใกล้หมดอายุ/หมดอายุแล้ว ${nearExp} รายการ`:''}`,
   };
 }
 
