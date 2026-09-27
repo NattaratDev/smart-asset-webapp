@@ -3716,8 +3716,6 @@ function openDrugItemDetail(group, id){
   if(!d) return;
   const canManage = hasPerm(DRUG_VIEW_KEY[group],'edit');
   const ex = nearestDrugExpiry(id);
-  const lots = state.drugStockTx.filter(t=>t.item_id===id && t.type==='รับเข้า')
-    .slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
   const rows = (k,v) => v ? `<div><p class="text-xs text-slate-400">${k}</p><p class="text-slate-700">${escapeHtml(String(v))}</p></div>` : '';
   openModal(`ข้อมูล${escapeHtml(group)}`, `
     <div class="flex items-center gap-3 mb-4">
@@ -3737,13 +3735,6 @@ function openDrugItemDetail(group, id){
       ${rows('จุดสั่งซื้อขั้นต่ำ', d.min_quantity!=null ? d.min_quantity+' '+d.unit : '')}
       ${rows('วันหมดอายุใกล้สุด', ex ? (ex.expired?'หมดอายุแล้ว '+fmtDateOnly(ex.date):fmtDateOnly(ex.date)) : '')}
       <div class="col-span-2">${rows('รายละเอียด', d.description)}</div>
-    </div>
-    <div class="bg-slate-50 rounded-2xl px-3 py-2 text-sm mb-4">
-      <p class="text-xs text-slate-400 mb-1">ประวัติการรับเข้า / Lot (${lots.length} ครั้ง)</p>
-      <div class="space-y-1 max-h-40 overflow-y-auto">
-        ${lots.slice(0,10).map(t=>`<p class="text-slate-600 truncate">${formatDate(t.created_at)} · +${t.quantity} ${escapeHtml(d.unit)}${t.lot_no?' · Lot '+escapeHtml(t.lot_no):''}${t.expiry_date?' · หมดอายุ '+fmtDateOnly(t.expiry_date):''}</p>`).join('') || '<p class="text-slate-300">ยังไม่มีประวัติการรับเข้า</p>'}
-      </div>
-      ${lots.length>10?'<p class="text-xs text-slate-400 mt-1">ดูทั้งหมดได้ที่ Stock Card</p>':''}
     </div>
     <div class="flex flex-wrap justify-end gap-2">
       <button onclick="closeModal()" class="btn-secondary">ปิด</button>
