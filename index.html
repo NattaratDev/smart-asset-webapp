@@ -3701,12 +3701,56 @@ function renderDrugStockGrid(group){
         ${d.is_active===false?'<span class="badge !px-2 !py-0.5 text-[10px] bg-slate-200 text-slate-500">ปิดใช้งาน</span>':''}
         ${drugExpiryBadge(d.id)}
       </div>
-      ${canManage?`<div class="flex gap-1.5">
-        <button onclick="openDrugItemModal('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
-        <button onclick="deleteDrugItem('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
-      </div>`:''}
+      <div class="flex gap-1.5">
+        <button onclick="openDrugItemDetail('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center" title="ดูรายละเอียด"><i data-lucide="eye" class="w-3.5 h-3.5"></i></button>
+        ${canManage?`<button onclick="openDrugItemModal('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+        <button onclick="deleteDrugItem('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`:''}
+      </div>
     </div>`;
   }).join('') || `<p class="col-span-full text-center text-slate-300 py-10">ไม่พบข้อมูล${escapeHtml(group)}</p>`;
+  lucide.createIcons();
+}
+
+function openDrugItemDetail(group, id){
+  const d = state.drugItems.find(x=>x.id===id);
+  if(!d) return;
+  const canManage = hasPerm(DRUG_VIEW_KEY[group],'edit');
+  const ex = nearestDrugExpiry(id);
+  const lots = state.drugStockTx.filter(t=>t.item_id===id && t.type==='รับเข้า')
+    .slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
+  const rows = (k,v) => v ? `<div><p class="text-xs text-slate-400">${k}</p><p class="text-slate-700">${escapeHtml(String(v))}</p></div>` : '';
+  openModal(`ข้อมูล${escapeHtml(group)}`, `
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${d.image_url?`<img src="${escapeHtml(d.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="pill" class="w-7 h-7 text-slate-300"></i>`}</div>
+      <div class="min-w-0">
+        <p class="text-xs text-slate-400">${escapeHtml(d.item_code||'-')}</p>
+        <p class="font-semibold text-slate-700">${escapeHtml(d.name)}</p>
+        <div class="mt-1 flex gap-1 flex-wrap">
+          <span class="badge ${Number(d.quantity)<=Number(d.min_quantity)?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${d.quantity} ${escapeHtml(d.unit)}</span>
+          ${d.is_active===false?'<span class="badge bg-slate-200 text-slate-500">ปิดใช้งาน</span>':''}
+          ${drugExpiryBadge(d.id)}
+        </div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-4">
+      ${rows('หมวดหมู่', d.category)}
+      ${rows('จุดสั่งซื้อขั้นต่ำ', d.min_quantity!=null ? d.min_quantity+' '+d.unit : '')}
+      ${rows('วันหมดอายุใกล้สุด', ex ? (ex.expired?'หมดอายุแล้ว '+fmtDateOnly(ex.date):fmtDateOnly(ex.date)) : '')}
+      <div class="col-span-2">${rows('รายละเอียด', d.description)}</div>
+    </div>
+    <div class="bg-slate-50 rounded-2xl px-3 py-2 text-sm mb-4">
+      <p class="text-xs text-slate-400 mb-1">ประวัติการรับเข้า / Lot (${lots.length} ครั้ง)</p>
+      <div class="space-y-1 max-h-40 overflow-y-auto">
+        ${lots.slice(0,10).map(t=>`<p class="text-slate-600 truncate">${formatDate(t.created_at)} · +${t.quantity} ${escapeHtml(d.unit)}${t.lot_no?' · Lot '+escapeHtml(t.lot_no):''}${t.expiry_date?' · หมดอายุ '+fmtDateOnly(t.expiry_date):''}</p>`).join('') || '<p class="text-slate-300">ยังไม่มีประวัติการรับเข้า</p>'}
+      </div>
+      ${lots.length>10?'<p class="text-xs text-slate-400 mt-1">ดูทั้งหมดได้ที่ Stock Card</p>':''}
+    </div>
+    <div class="flex flex-wrap justify-end gap-2">
+      <button onclick="closeModal()" class="btn-secondary">ปิด</button>
+      <button onclick="closeModal(); openDrugStockCardModal('${group}','${d.id}')" class="btn-secondary gap-2"><i data-lucide="scroll-text" class="w-4 h-4"></i>Stock Card</button>
+      ${canManage?`<button onclick="closeModal(); openDrugItemModal('${group}','${d.id}')" class="btn-primary gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>แก้ไข</button>`:''}
+    </div>
+  `, 'max-w-lg', true);
   lucide.createIcons();
 }
 
