@@ -1038,8 +1038,8 @@ function renderDashboard(){
       </div>
     </div>` : ''}
     ${showAssetChart || showMatChart ? `<div class="grid ${showAssetChart&&showMatChart?'lg:grid-cols-2':''} gap-5 mb-6">
-      ${showAssetChart?`<div class="card"><canvas id="chartAssetStatus" height="220"></canvas></div>`:''}
-      ${showMatChart?`<div class="card"><canvas id="chartMaterialCategory" height="220"></canvas></div>`:''}
+      ${showAssetChart?`<div class="card !p-3"><canvas id="chartAssetStatus" height="130"></canvas></div>`:''}
+      ${showMatChart?`<div class="card !p-3"><canvas id="chartMaterialCategory" height="130"></canvas></div>`:''}
     </div>` : ''}
     <div class="card">
       <h3 class="font-semibold text-slate-600 mb-3">คำร้องล่าสุด</h3>
@@ -1075,7 +1075,7 @@ function renderDashboardCharts(showAssetChart, showMatChart){
     if(ctx1) state.charts.status = new Chart(ctx1, {
       type:'doughnut',
       data:{ labels: Object.keys(statusCounts).length?Object.keys(statusCounts):['ไม่มีข้อมูล'], datasets:[{ data: Object.keys(statusCounts).length?Object.values(statusCounts):[1], backgroundColor:['#93C5FD','#FDA4AF','#FCD34D','#A7F3D0'] }] },
-      options:{ plugins:{ legend:{position:'bottom'}, title:{display:true,text:'สถานะครุภัณฑ์'} } }
+      options:{ maintainAspectRatio:true, aspectRatio:2.4, plugins:{ legend:{position:'right', labels:{boxWidth:10, font:{size:11}} }, title:{display:true,text:'สถานะครุภัณฑ์', font:{size:13} } } }
     });
   }
   if(showMatChart){
@@ -1085,8 +1085,8 @@ function renderDashboardCharts(showAssetChart, showMatChart){
     if(state.charts.category) state.charts.category.destroy();
     if(ctx2) state.charts.category = new Chart(ctx2, {
       type:'bar',
-      data:{ labels: Object.keys(catCounts).length?Object.keys(catCounts):['ไม่มีข้อมูล'], datasets:[{ label:'จำนวนคงเหลือ', data: Object.keys(catCounts).length?Object.values(catCounts):[0], backgroundColor:'#C4B5FD', borderRadius:8 }] },
-      options:{ plugins:{ legend:{display:false}, title:{display:true,text:'วัสดุคงเหลือตามหมวดหมู่'} } }
+      data:{ labels: Object.keys(catCounts).length?Object.keys(catCounts):['ไม่มีข้อมูล'], datasets:[{ label:'จำนวนคงเหลือ', data: Object.keys(catCounts).length?Object.values(catCounts):[0], backgroundColor:'#C4B5FD', borderRadius:6 }] },
+      options:{ maintainAspectRatio:true, aspectRatio:2.4, plugins:{ legend:{display:false}, title:{display:true,text:'วัสดุคงเหลือตามหมวดหมู่', font:{size:13} } }, scales:{ x:{ ticks:{font:{size:10}} }, y:{ ticks:{font:{size:10}} } } }
     });
   }
 }
