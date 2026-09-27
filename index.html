@@ -953,29 +953,72 @@ const ACTIVITY_OK = ['อนุมัติ','ยืมอยู่','คืน�
 const ACTIVITY_BAD = ['ไม่อนุมัติ','ซ่อมไม่ได้','ยกเลิก'];
 
 function getUnifiedActivity(){
-  const a = state.issueRequests.map(r=>({ id:r.id, code:r.issue_code, type:'เบิกวัสดุ', requester_id:r.requester_id, status:r.status, created_at:r.created_at }));
-  const c = state.assetLoans.map(l=>({ id:l.id, code:l.loan_code, type:'ยืมครุภัณฑ์', requester_id:l.borrower_id, status:l.status, created_at:l.created_at }));
-  return [...a, ...c].sort((x,y)=> new Date(y.created_at) - new Date(x.created_at));
+  const a = state.issueRequests.map(r=>({ id:r.id, code:r.issue_code, type:'เบิกวัสดุ', menuKey:'matTrack', requester_id:r.requester_id, status:r.status, created_at:r.created_at }));
+  const b = state.assetLoans.map(l=>({ id:l.id, code:l.loan_code, type:'ยืมครุภัณฑ์', menuKey:'assetLoan', requester_id:l.borrower_id, status:l.status, created_at:l.created_at }));
+  const c = state.drugIssueRequests.map(r=>({ id:r.id, code:r.issue_code, type:'เบิก'+r.drug_group, menuKey:DRUG_VIEW_KEY[r.drug_group], requester_id:r.requester_id, status:r.status, created_at:r.created_at }));
+  return [...a, ...b, ...c].sort((x,y)=> new Date(y.created_at) - new Date(x.created_at));
+}
+
+// รายการที่ "ต้องดำเนินการ" บนแดชบอร์ด - แสดงเฉพาะหัวข้อที่ผู้ใช้มีสิทธิ์ดูเมนูนั้น
+function dashboardAttentionItems(){
+  const items = [];
+  if(hasPerm('matStock','view')){
+    const low = state.materials.filter(m=>m.is_active!==false && Number(m.quantity)<=Number(m.min_quantity));
+    if(low.length) items.push({ icon:'box', color:'amber', label:`วัสดุใกล้หมด/หมดแล้ว ${low.length} รายการ`, view:'matStock' });
+  }
+  ['เวชภัณฑ์','เวชภัณฑ์มิใช่ยา'].forEach(group=>{
+    const key = DRUG_VIEW_KEY[group];
+    if(!hasPerm(key,'view')) return;
+    const near = drugItemsOf(group).filter(d=>{ const ex = nearestDrugExpiry(d.id); return ex && (ex.expired || ex.days<=90); });
+    if(near.length) items.push({ icon:'flask-conical', color:'rose', label:`${group}ใกล้หมดอายุ/หมดอายุแล้ว ${near.length} รายการ`, view:key });
+  });
+  if(hasPerm('assetLoan','view')){
+    const overdue = state.assetLoans.filter(isLoanOverdue);
+    if(overdue.length) items.push({ icon:'hand', color:'rose', label:`ยืมครุภัณฑ์เกินกำหนดคืน ${overdue.length} รายการ`, view:'assetLoan' });
+  }
+  if(hasPerm('medReturn','view') || hasPerm('medLoan','view')){
+    const overdue = state.medLoans.filter(isMedLoanOverdue);
+    if(overdue.length) items.push({ icon:'stethoscope', color:'rose', label:`ยืมอุปกรณ์การแพทย์เกินกำหนดคืน ${overdue.length} รายการ`, view: hasPerm('medReturn','view')?'medReturn':'medLoan' });
+  }
+  const approvalCounts = [
+    ['matTrack', state.issueRequests.filter(r=>r.status==='รออนุมัติ').length, 'ใบเบิกวัสดุรออนุมัติ'],
+    ['assetLoan', state.assetLoans.filter(l=>l.status==='รออนุมัติ').length, 'คำขอยืมครุภัณฑ์รออนุมัติ'],
+    ['drugMed', state.drugIssueRequests.filter(r=>r.drug_group==='เวชภัณฑ์' && r.status==='รออนุมัติ').length, 'ใบเบิกเวชภัณฑ์รออนุมัติ'],
+    ['drugNonMed', state.drugIssueRequests.filter(r=>r.drug_group==='เวชภัณฑ์มิใช่ยา' && r.status==='รออนุมัติ').length, 'ใบเบิกเวชภัณฑ์มิใช่ยารออนุมัติ'],
+  ];
+  approvalCounts.forEach(([key, n, label])=>{
+    if(n && hasPerm(key,'approve')) items.push({ icon:'clock', color:'violet', label:`${label} ${n} ใบ`, view:key });
+  });
+  return items;
 }
 
 function renderDashboard(){
   const isPriv = isPrivilegedUser();
   const allActivity = getUnifiedActivity();
   const myActivity = allActivity.filter(r=>r.requester_id===state.user.id);
-  const pending = allActivity.filter(r=>ACTIVITY_PENDING.includes(r.status));
-  const lowStock = state.materials.filter(m=>Number(m.quantity)<=Number(m.min_quantity));
-  const statCards = isPriv ? [
-    {label:'พนักงานทั้งหมด', value:state.users.length, icon:'users', color:'sky'},
-    {label:'ครุภัณฑ์ทั้งหมด', value:state.assets.length, icon:'monitor', color:'pink'},
-    {label:'วัสดุใกล้หมด', value:lowStock.length, icon:'alert-triangle', color:'amber'},
-    {label:'งานรอดำเนินการ', value:pending.length, icon:'clock', color:'violet'},
-  ] : [
+  const attention = isPriv ? dashboardAttentionItems() : [];
+
+  let nearExpCount = 0;
+  ['เวชภัณฑ์','เวชภัณฑ์มิใช่ยา'].forEach(group=>{
+    if(!hasPerm(DRUG_VIEW_KEY[group],'view')) return;
+    nearExpCount += drugItemsOf(group).filter(d=>{ const ex = nearestDrugExpiry(d.id); return ex && (ex.expired || ex.days<=90); }).length;
+  });
+  const privCardDefs = [
+    { show: hasPerm('employees','view'), label:'พนักงานทั้งหมด', value:state.users.length, icon:'users', color:'sky' },
+    { show: hasPerm('assets','view'), label:'ครุภัณฑ์ทั้งหมด', value:state.assets.length, icon:'monitor', color:'pink' },
+    { show: hasPerm('matStock','view'), label:'วัสดุใกล้หมด', value:state.materials.filter(m=>Number(m.quantity)<=Number(m.min_quantity)).length, icon:'alert-triangle', color:'amber' },
+    { show: hasPerm('drugMed','view') || hasPerm('drugNonMed','view'), label:'เวชภัณฑ์ใกล้/หมดอายุ', value: nearExpCount, icon:'flask-conical', color:'rose' },
+    { show: true, label:'งานรอดำเนินการ', value:attention.length, icon:'clock', color:'violet' },
+  ];
+  const statCards = isPriv ? privCardDefs.filter(c=>c.show) : [
     {label:'คำร้องของฉัน', value:myActivity.length, icon:'clipboard-list', color:'sky'},
     {label:'รอดำเนินการ', value:myActivity.filter(r=>ACTIVITY_PENDING.includes(r.status)).length, icon:'clock', color:'amber'},
     {label:'ดำเนินการแล้ว', value:myActivity.filter(r=>ACTIVITY_OK.includes(r.status)).length, icon:'check-circle', color:'emerald'},
     {label:'ไม่ผ่าน/ยกเลิก', value:myActivity.filter(r=>ACTIVITY_BAD.includes(r.status)).length, icon:'x-circle', color:'rose'},
   ];
-  const listForTable = isPriv ? allActivity : myActivity;
+  const listForTable = isPriv ? allActivity.filter(r=>hasPerm(r.menuKey,'view')) : myActivity;
+  const showAssetChart = hasPerm('assets','view');
+  const showMatChart = hasPerm('matStock','view');
 
   $('#mainContent').innerHTML = `
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -985,10 +1028,19 @@ function renderDashboard(){
           <div class="min-w-0"><p class="text-xl font-bold text-slate-700">${s.value}</p><p class="text-xs text-slate-400 truncate">${s.label}</p></div>
         </div>`).join('')}
     </div>
-    <div class="grid lg:grid-cols-2 gap-5 mb-6">
-      <div class="card"><canvas id="chartAssetStatus" height="220"></canvas></div>
-      <div class="card"><canvas id="chartMaterialCategory" height="220"></canvas></div>
-    </div>
+    ${isPriv && attention.length ? `<div class="card mb-6">
+      <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="bell" class="w-4 h-4 text-violet-400"></i>ต้องดำเนินการ</h3>
+      <div class="grid sm:grid-cols-2 gap-2">
+        ${attention.map(a=>`<button onclick="navigate('${a.view}')" class="flex items-center gap-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl px-3 py-2.5 text-left transition">
+          <div class="w-8 h-8 rounded-xl bg-${a.color}-100 text-${a.color}-500 flex items-center justify-center shrink-0"><i data-lucide="${a.icon}" class="w-4 h-4"></i></div>
+          <span class="text-sm text-slate-600">${escapeHtml(a.label)}</span>
+        </button>`).join('')}
+      </div>
+    </div>` : ''}
+    ${showAssetChart || showMatChart ? `<div class="grid ${showAssetChart&&showMatChart?'lg:grid-cols-2':''} gap-5 mb-6">
+      ${showAssetChart?`<div class="card"><canvas id="chartAssetStatus" height="220"></canvas></div>`:''}
+      ${showMatChart?`<div class="card"><canvas id="chartMaterialCategory" height="220"></canvas></div>`:''}
+    </div>` : ''}
     <div class="card">
       <h3 class="font-semibold text-slate-600 mb-3">คำร้องล่าสุด</h3>
       <div class="overflow-x-auto">
@@ -1011,29 +1063,32 @@ function renderDashboard(){
     </div>
   `;
   lucide.createIcons();
-  renderDashboardCharts();
+  renderDashboardCharts(showAssetChart, showMatChart);
 }
 
-function renderDashboardCharts(){
-  const statusCounts = {};
-  state.assets.forEach(a=>statusCounts[a.status]=(statusCounts[a.status]||0)+1);
-  const ctx1 = document.getElementById('chartAssetStatus');
-  if(state.charts.status) state.charts.status.destroy();
-  if(ctx1) state.charts.status = new Chart(ctx1, {
-    type:'doughnut',
-    data:{ labels: Object.keys(statusCounts).length?Object.keys(statusCounts):['ไม่มีข้อมูล'], datasets:[{ data: Object.keys(statusCounts).length?Object.values(statusCounts):[1], backgroundColor:['#93C5FD','#FDA4AF','#FCD34D','#A7F3D0'] }] },
-    options:{ plugins:{ legend:{position:'bottom'}, title:{display:true,text:'สถานะครุภัณฑ์'} } }
-  });
-
-  const catCounts = {};
-  state.materials.forEach(m=>{ const c = m.category||'อื่นๆ'; catCounts[c] = (catCounts[c]||0) + Number(m.quantity||0); });
-  const ctx2 = document.getElementById('chartMaterialCategory');
-  if(state.charts.category) state.charts.category.destroy();
-  if(ctx2) state.charts.category = new Chart(ctx2, {
-    type:'bar',
-    data:{ labels: Object.keys(catCounts).length?Object.keys(catCounts):['ไม่มีข้อมูล'], datasets:[{ label:'จำนวนคงเหลือ', data: Object.keys(catCounts).length?Object.values(catCounts):[0], backgroundColor:'#C4B5FD', borderRadius:8 }] },
-    options:{ plugins:{ legend:{display:false}, title:{display:true,text:'วัสดุคงเหลือตามหมวดหมู่'} } }
-  });
+function renderDashboardCharts(showAssetChart, showMatChart){
+  if(showAssetChart){
+    const statusCounts = {};
+    state.assets.forEach(a=>statusCounts[a.status]=(statusCounts[a.status]||0)+1);
+    const ctx1 = document.getElementById('chartAssetStatus');
+    if(state.charts.status) state.charts.status.destroy();
+    if(ctx1) state.charts.status = new Chart(ctx1, {
+      type:'doughnut',
+      data:{ labels: Object.keys(statusCounts).length?Object.keys(statusCounts):['ไม่มีข้อมูล'], datasets:[{ data: Object.keys(statusCounts).length?Object.values(statusCounts):[1], backgroundColor:['#93C5FD','#FDA4AF','#FCD34D','#A7F3D0'] }] },
+      options:{ plugins:{ legend:{position:'bottom'}, title:{display:true,text:'สถานะครุภัณฑ์'} } }
+    });
+  }
+  if(showMatChart){
+    const catCounts = {};
+    state.materials.forEach(m=>{ const c = m.category||'อื่นๆ'; catCounts[c] = (catCounts[c]||0) + Number(m.quantity||0); });
+    const ctx2 = document.getElementById('chartMaterialCategory');
+    if(state.charts.category) state.charts.category.destroy();
+    if(ctx2) state.charts.category = new Chart(ctx2, {
+      type:'bar',
+      data:{ labels: Object.keys(catCounts).length?Object.keys(catCounts):['ไม่มีข้อมูล'], datasets:[{ label:'จำนวนคงเหลือ', data: Object.keys(catCounts).length?Object.values(catCounts):[0], backgroundColor:'#C4B5FD', borderRadius:8 }] },
+      options:{ plugins:{ legend:{display:false}, title:{display:true,text:'วัสดุคงเหลือตามหมวดหมู่'} } }
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
