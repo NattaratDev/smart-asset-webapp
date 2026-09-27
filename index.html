@@ -57,8 +57,8 @@
   .label-card { box-sizing:border-box; height:64mm; border:1.2px solid #111; border-radius:3mm; padding:2.5mm 3mm; display:flex; flex-direction:column; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }
   .label-card .lc-head { text-align:center; font-size:11px; font-weight:700; line-height:1.3; padding-bottom:1.5mm; border-bottom:1px solid #111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .label-card .lc-body { flex:1; display:flex; gap:3mm; padding-top:2mm; min-height:0; }
-  .label-card .lc-qr { width:31mm; flex-shrink:0; display:flex; flex-direction:column; align-items:center; }
-  .label-card .lc-qr svg { width:31mm; height:31mm; display:block; }
+  .label-card .lc-qr { width:40mm; flex-shrink:0; display:flex; flex-direction:column; align-items:center; }
+  .label-card .lc-qr svg { width:40mm; height:40mm; display:block; }
   .label-card .lc-qr small { font-size:8px; color:#444; margin-top:1mm; }
   .label-card .lc-info { flex:1; min-width:0; font-size:10.5px; line-height:1.35; }
   .label-card .lc-code { font-size:14px; font-weight:700; line-height:1.25; word-break:break-all; }
@@ -239,6 +239,8 @@ const dbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 Chart.defaults.font.family = 'Kanit';
 
 const SESSION_KEY = 'smartasset_session';
+let pendingAssetId = normalizeAssetId(new URLSearchParams(location.search).get('a'));
+function normalizeAssetId(v){ v = String(v||'').trim().toLowerCase(); return /^[0-9a-f]{32}$/.test(v) ? v.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5') : v; }   // มาจากการสแกน QR บนการ์ดครุภัณฑ์
 const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], assetReceipts: [], assetRepairs: [], assetLoans: [], medEquipment: [], medLoans: [], settings: {}, charts: {} };
 
 const MENU_ITEMS = {
@@ -540,6 +542,15 @@ function enterApp(){
   buildSidebar();
   buildBottomNav();
   navigate('dashboard');
+  if(pendingAssetId) openPendingAsset();
+}
+
+function openPendingAsset(){
+  const id = pendingAssetId;
+  pendingAssetId = null;
+  try{ history.replaceState(null, '', location.pathname); }catch(e){}
+  navigate('assets');
+  openAssetDetail(id);
 }
 
 async function loadLandingStats(){
@@ -1437,6 +1448,49 @@ function printAssetLedger(id){
 }
 
 // ---------------------------------------------------------------------------
+// รายละเอียดครุภัณฑ์ (เปิดจากการสแกน QR หรือกดที่ชื่อในทะเบียน)
+// ---------------------------------------------------------------------------
+function openAssetDetail(id){
+  const a = state.assets.find(x=>x.id===id);
+  if(!a){ showToast('ไม่พบครุภัณฑ์ในระบบ (อาจถูกลบไปแล้ว)','error'); return; }
+  const canManage = state.user.role !== 'employee';
+  const loan = activeLoanOf(a.id);
+  const resp = state.users.find(u=>u.id===a.responsible_user_id);
+  const repairs = state.assetRepairs.filter(r=>r.asset_id===a.id && r.status!=='ยกเลิก').sort((x,y)=>repairDate(y).localeCompare(repairDate(x)));
+  const rows = [
+    ['ประเภท', a.category], ['ยี่ห้อ/รุ่น', a.brand_model], ['Serial', a.serial_number], ['ลักษณะ/คุณสมบัติ', a.description],
+    ['สถานที่ตั้ง', a.location], ['ผู้รับผิดชอบ', resp?.full_name],
+    ['วันที่ได้มา', a.purchase_date ? fmtDateOnly(a.purchase_date) : ''], ['ราคา', a.purchase_price!=null ? fmtMoney(a.purchase_price)+' บาท' : ''],
+    ['อายุการใช้งาน', a.useful_life_years ? a.useful_life_years+' ปี' : ''], ['ประเภทเงิน', a.fund_type], ['วิธีการได้มา', a.acquisition_method],
+    ['ผู้ขาย/ผู้บริจาค', a.supplier_name], ['ที่เอกสาร', a.doc_ref], ['หมายเหตุ', a.remark],
+  ].filter(([,v])=>v);
+  openModal('ข้อมูลครุภัณฑ์', `
+    <div class="flex items-center gap-3 mb-4">
+      <div class="w-16 h-16 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${a.image_url?`<img src="${escapeHtml(a.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="monitor" class="w-7 h-7 text-slate-300"></i>`}</div>
+      <div class="min-w-0">
+        <p class="text-xs text-slate-400">${escapeHtml(a.asset_code||'-')}</p>
+        <p class="font-semibold text-slate-700">${escapeHtml(a.name)}</p>
+        <div class="mt-1 flex gap-1 flex-wrap">${statusBadge(a.status)}${loan?`<span class="badge bg-violet-100 text-violet-600">ถูกยืมโดย ${escapeHtml(getUserName(loan.borrower_id))}</span>`:''}</div>
+      </div>
+    </div>
+    <div class="grid grid-cols-2 gap-x-4 gap-y-2 text-sm mb-4">
+      ${rows.map(([k,v])=>`<div class="${k==='ลักษณะ/คุณสมบัติ'||k==='หมายเหตุ'?'col-span-2':''}"><p class="text-xs text-slate-400">${k}</p><p class="text-slate-700">${escapeHtml(v)}</p></div>`).join('')}
+    </div>
+    <div class="bg-slate-50 rounded-2xl px-3 py-2 text-sm mb-4">
+      <p class="text-xs text-slate-400 mb-1">ประวัติซ่อมบำรุง (${repairs.length} ครั้ง)</p>
+      ${repairs.slice(0,3).map(r=>`<p class="text-slate-600 truncate">${fmtDateOnly(repairDate(r))} · ${escapeHtml(r.problem)}${r.cost!=null?' · '+fmtMoney(r.cost)+' บาท':''}</p>`).join('') || '<p class="text-slate-300">ยังไม่มีประวัติซ่อม</p>'}
+      ${repairs.length>3?'<p class="text-xs text-slate-400 mt-1">ดูทั้งหมดได้ในทะเบียนคุมทรัพย์สิน (หน้า 2)</p>':''}
+    </div>
+    <div class="flex flex-wrap justify-end gap-2">
+      <button onclick="closeModal()" class="btn-secondary">ปิด</button>
+      ${canManage?`<button onclick="openAssetModal('${a.id}')" class="btn-secondary gap-2"><i data-lucide="pencil" class="w-4 h-4"></i>แก้ไข</button>`:''}
+      <button onclick="openAssetLedger('${a.id}')" class="btn-primary gap-2"><i data-lucide="file-text" class="w-4 h-4"></i>ทะเบียนคุมทรัพย์สิน</button>
+    </div>
+  `, 'max-w-lg', true);
+  lucide.createIcons();
+}
+
+// ---------------------------------------------------------------------------
 // การ์ดข้อมูลครุภัณฑ์ (ติดที่ตัวครุภัณฑ์) + QR code : A4 แนวตั้ง 2 คอลัมน์
 // ---------------------------------------------------------------------------
 function updateAssetSelBar(){
@@ -1447,19 +1501,10 @@ function toggleAssetSel(id, on){ if(on) assetPrintSel.add(id); else assetPrintSe
 function selectShownAssets(){ assetFiltered().forEach(a=>assetPrintSel.add(a.id)); renderAssetGrid(); }
 function clearAssetSel(){ assetPrintSel.clear(); renderAssetGrid(); }
 
-// QR เก็บข้อมูลหลักของครุภัณฑ์เป็นข้อความ (UTF-8) สแกนแล้วอ่านได้ทันทีโดยไม่ต้องต่ออินเทอร์เน็ต
-function assetQrText(a){
-  const o = orgInfo();
-  return [
-    'รหัส: ' + (a.asset_code||'-'),
-    'ชื่อ: ' + a.name,
-    a.category ? 'ประเภท: ' + a.category : '',
-    a.brand_model ? 'ยี่ห้อ/รุ่น: ' + a.brand_model : '',
-    a.serial_number ? 'Serial: ' + a.serial_number : '',
-    a.location ? 'สถานที่: ' + a.location : '',
-    a.purchase_date ? 'ได้มา: ' + a.purchase_date : '',
-    o.configured ? 'หน่วยงาน: ' + o.name : '',
-  ].filter(Boolean).join('\n');
+// QR = ลิงก์เปิดหน้าครุภัณฑ์ในระบบ (ใช้ id ของครุภัณฑ์ จึงยังสแกนได้แม้แก้รหัสภายหลัง)
+function assetQrUrl(a){
+  const base = (typeof APP_BASE_URL !== 'undefined' && APP_BASE_URL) ? APP_BASE_URL : location.origin + location.pathname;
+  return base + (base.includes('?') ? '&' : '?') + 'a=' + a.id.replace(/-/g, '');
 }
 
 function qrSvg(text){
@@ -1469,11 +1514,12 @@ function qrSvg(text){
     qr.addData(text);
     qr.make();
     const n = qr.getModuleCount();
+    const q = 4;   // พื้นที่ว่างรอบ QR 4 โมดูล (มาตรฐาน) ช่วยให้สแกนง่าย
     let d = '';
     for(let r=0; r<n; r++) for(let c=0; c<n; c++) if(qr.isDark(r,c)) d += `M${c},${r}h1v1h-1z`;
-    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n+4} ${n+4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n+4}" height="${n+4}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="${-q} ${-q} ${n+2*q} ${n+2*q}" shape-rendering="crispEdges"><rect x="${-q}" y="${-q}" width="${n+2*q}" height="${n+2*q}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
   }catch(err){
-    return '<div style="font-size:9px">สร้าง QR ไม่ได้ (ข้อมูลยาวเกินไป)</div>';
+    return '<div style="font-size:9px">สร้าง QR ไม่ได้</div>';
   }
 }
 
@@ -1483,7 +1529,7 @@ function assetLabelCardHtml(a){
   return `<div class="label-card">
     <div class="lc-head">${escapeHtml(o.name)}</div>
     <div class="lc-body">
-      <div class="lc-qr">${qrSvg(assetQrText(a))}<small>สแกนเพื่อดูข้อมูล</small></div>
+      <div class="lc-qr">${qrSvg(assetQrUrl(a))}<small>สแกนเพื่อดูข้อมูลครุภัณฑ์</small></div>
       <div class="lc-info">
         <div class="lc-code">${escapeHtml(a.asset_code||'-')}</div>
         <div class="lc-name">${escapeHtml(a.name)}</div>
@@ -1598,8 +1644,8 @@ function renderAssetGrid(){
     const loan = activeLoanOf(a.id);
     return `<div class="card !p-3">
       <div class="flex items-center gap-2 mb-2">
-        <div class="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${a.image_url?`<img src="${escapeHtml(a.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="monitor" class="w-4 h-4 text-slate-300"></i>`}</div>
-        <div class="min-w-0 flex-1">
+        <div onclick="openAssetDetail('${a.id}')" class="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0 cursor-pointer">${a.image_url?`<img src="${escapeHtml(a.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="monitor" class="w-4 h-4 text-slate-300"></i>`}</div>
+        <div onclick="openAssetDetail('${a.id}')" title="ดูรายละเอียด" class="min-w-0 flex-1 cursor-pointer">
           <p class="text-[10px] text-slate-400 truncate">${escapeHtml(a.asset_code||'-')}</p>
           <p class="text-sm font-medium text-slate-700 truncate" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</p>
         </div>
@@ -3827,6 +3873,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   if(restoreSession()){
     await fetchAll();
     enterApp();
+  } else if(pendingAssetId){
+    showLoginPage();
+    showToast('กรุณาเข้าสู่ระบบเพื่อดูข้อมูลครุภัณฑ์','info');
   } else {
     showLanding();
   }
