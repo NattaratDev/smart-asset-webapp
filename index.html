@@ -21,6 +21,7 @@
 </script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
 <script src="https://unpkg.com/lucide@latest"></script>
 <script src="config.js"></script>
 <style>
@@ -52,6 +53,19 @@
   .ledger-fill { flex:1; display:flex; flex-direction:column; }
   .ledger-fill table { flex:1 1 auto; }
   .a4-sheet.land { display:flex; flex-direction:column; width:297mm; min-height:207mm; padding:9mm 12mm; font-size:13px; line-height:1.55; }
+  .label-sheet { width:210mm; box-sizing:border-box; padding:8mm; display:grid; grid-template-columns:1fr 1fr; gap:4mm; background:#fff; color:#111; align-content:start; }
+  .label-card { box-sizing:border-box; height:64mm; border:1.2px solid #111; border-radius:3mm; padding:2.5mm 3mm; display:flex; flex-direction:column; overflow:hidden; break-inside:avoid; page-break-inside:avoid; }
+  .label-card .lc-head { text-align:center; font-size:11px; font-weight:700; line-height:1.3; padding-bottom:1.5mm; border-bottom:1px solid #111; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .label-card .lc-body { flex:1; display:flex; gap:3mm; padding-top:2mm; min-height:0; }
+  .label-card .lc-qr { width:31mm; flex-shrink:0; display:flex; flex-direction:column; align-items:center; }
+  .label-card .lc-qr svg { width:31mm; height:31mm; display:block; }
+  .label-card .lc-qr small { font-size:8px; color:#444; margin-top:1mm; }
+  .label-card .lc-info { flex:1; min-width:0; font-size:10.5px; line-height:1.35; }
+  .label-card .lc-code { font-size:14px; font-weight:700; line-height:1.25; word-break:break-all; }
+  .label-card .lc-name { font-size:12px; font-weight:600; line-height:1.3; margin-bottom:1mm; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .label-card .lc-row { display:flex; gap:1.5mm; }
+  .label-card .lc-row b { font-weight:600; white-space:nowrap; }
+  .label-card .lc-row span { min-width:0; word-break:break-word; }
   .a4-dots { display:inline-block; border-bottom:1px dotted #111; min-width:50mm; text-align:center; }
   @media print {
     @page { size:A4; margin:0; }
@@ -1422,6 +1436,101 @@ function printAssetLedger(id){
   printArea();
 }
 
+// ---------------------------------------------------------------------------
+// การ์ดข้อมูลครุภัณฑ์ (ติดที่ตัวครุภัณฑ์) + QR code : A4 แนวตั้ง 2 คอลัมน์
+// ---------------------------------------------------------------------------
+function updateAssetSelBar(){
+  const c = $('#assetSelCount'); if(c) c.textContent = assetPrintSel.size;
+  const b = $('#assetPrintBtn'); if(b){ b.disabled = assetPrintSel.size === 0; b.classList.toggle('opacity-40', assetPrintSel.size === 0); b.classList.toggle('cursor-not-allowed', assetPrintSel.size === 0); }
+}
+function toggleAssetSel(id, on){ if(on) assetPrintSel.add(id); else assetPrintSel.delete(id); updateAssetSelBar(); }
+function selectShownAssets(){ assetFiltered().forEach(a=>assetPrintSel.add(a.id)); renderAssetGrid(); }
+function clearAssetSel(){ assetPrintSel.clear(); renderAssetGrid(); }
+
+// QR เก็บข้อมูลหลักของครุภัณฑ์เป็นข้อความ (UTF-8) สแกนแล้วอ่านได้ทันทีโดยไม่ต้องต่ออินเทอร์เน็ต
+function assetQrText(a){
+  const o = orgInfo();
+  return [
+    'รหัส: ' + (a.asset_code||'-'),
+    'ชื่อ: ' + a.name,
+    a.category ? 'ประเภท: ' + a.category : '',
+    a.brand_model ? 'ยี่ห้อ/รุ่น: ' + a.brand_model : '',
+    a.serial_number ? 'Serial: ' + a.serial_number : '',
+    a.location ? 'สถานที่: ' + a.location : '',
+    a.purchase_date ? 'ได้มา: ' + a.purchase_date : '',
+    o.configured ? 'หน่วยงาน: ' + o.name : '',
+  ].filter(Boolean).join('\n');
+}
+
+function qrSvg(text){
+  try{
+    qrcode.stringToBytes = qrcode.stringToBytesFuncs['UTF-8'];
+    const qr = qrcode(0, 'M');
+    qr.addData(text);
+    qr.make();
+    const n = qr.getModuleCount();
+    let d = '';
+    for(let r=0; r<n; r++) for(let c=0; c<n; c++) if(qr.isDark(r,c)) d += `M${c},${r}h1v1h-1z`;
+    return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-2 -2 ${n+4} ${n+4}" shape-rendering="crispEdges"><rect x="-2" y="-2" width="${n+4}" height="${n+4}" fill="#fff"/><path d="${d}" fill="#000"/></svg>`;
+  }catch(err){
+    return '<div style="font-size:9px">สร้าง QR ไม่ได้ (ข้อมูลยาวเกินไป)</div>';
+  }
+}
+
+function assetLabelCardHtml(a){
+  const o = orgInfo();
+  const row = (k, v) => v ? `<div class="lc-row"><b>${k}</b><span>${escapeHtml(v)}</span></div>` : '';
+  return `<div class="label-card">
+    <div class="lc-head">${escapeHtml(o.name)}</div>
+    <div class="lc-body">
+      <div class="lc-qr">${qrSvg(assetQrText(a))}<small>สแกนเพื่อดูข้อมูล</small></div>
+      <div class="lc-info">
+        <div class="lc-code">${escapeHtml(a.asset_code||'-')}</div>
+        <div class="lc-name">${escapeHtml(a.name)}</div>
+        ${row('ประเภท', a.category)}
+        ${row('ยี่ห้อ/รุ่น', a.brand_model)}
+        ${row('Serial', a.serial_number)}
+        ${row('สถานที่', a.location)}
+        ${row('ได้มา', a.purchase_date ? shortThaiDate(a.purchase_date+'T00:00:00') : '')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function assetLabelSheetHtml(list){
+  return `<div class="label-sheet">${list.map(assetLabelCardHtml).join('')}</div>`;
+}
+
+function labelAssets(ids){
+  const set = new Set(ids);
+  return state.assets.filter(a=>set.has(a.id));
+}
+
+function openAssetLabels(ids){
+  const list = labelAssets(ids || [...assetPrintSel]);
+  if(!list.length){ showToast('กรุณาเลือกครุภัณฑ์ที่ต้องการพิมพ์การ์ด','error'); return; }
+  const perPage = 8;
+  const idsJson = JSON.stringify(list.map(a=>a.id)).replace(/"/g, '&quot;');
+  openModal('พิมพ์การ์ดครุภัณฑ์ (QR)', `
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+      <p class="text-sm text-slate-500">${list.length} ใบ · กระดาษ A4 แนวตั้ง 2 คอลัมน์ (ประมาณ ${perPage} ใบต่อแผ่น → ${Math.ceil(list.length/perPage)} แผ่น)</p>
+      <div class="flex gap-2">
+        <button onclick="closeModal()" class="btn-secondary">ปิด</button>
+        <button onclick="printAssetLabels(JSON.parse(this.dataset.ids))" data-ids="${idsJson}" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF</button>
+      </div>
+    </div>
+    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:210mm;zoom:.8;margin:0 auto;box-shadow:0 4px 20px rgba(0,0,0,.12)">${assetLabelSheetHtml(list)}</div></div>
+  `, 'max-w-4xl', true);
+  lucide.createIcons();
+}
+
+function printAssetLabels(ids){
+  const list = labelAssets(ids);
+  if(!list.length) return;
+  $('#printArea').innerHTML = assetLabelSheetHtml(list);
+  printArea();
+}
+
 async function setAssetStatus(assetId, status){
   const { data, error } = await dbClient.from('fixed_assets').update({ status }).eq('id', assetId).select().single();
   if(error) throw error;
@@ -1459,18 +1568,32 @@ function renderAssets(){
       </select>
     </div>
     <p class="text-xs text-slate-400 mb-4">${canManage?'เพิ่มครุภัณฑ์ใหม่ที่เมนู "รับครุภัณฑ์" · ':''}ยืม-คืนและแจ้งซ่อมได้ที่เมนู "ยืม-คืน" และ "ซ่อมบำรุง"</p>
+    ${canManage?`<div id="assetSelBar" class="card !p-3 mb-4 flex flex-wrap items-center gap-2">
+      <i data-lucide="qr-code" class="w-4 h-4 text-emerald-500"></i>
+      <span class="text-sm text-slate-600">พิมพ์การ์ดครุภัณฑ์:</span>
+      <span class="text-sm text-slate-400">เลือกแล้ว <b id="assetSelCount" class="text-slate-600">0</b> รายการ</span>
+      <button onclick="selectShownAssets()" class="btn-secondary !py-1.5 !px-3 text-xs">เลือกทั้งหมดที่แสดง</button>
+      <button onclick="clearAssetSel()" class="btn-secondary !py-1.5 !px-3 text-xs">ล้างการเลือก</button>
+      <button id="assetPrintBtn" onclick="openAssetLabels()" class="btn-primary !py-1.5 !px-4 text-xs gap-1 ml-auto"><i data-lucide="printer" class="w-3.5 h-3.5"></i>พิมพ์การ์ดที่เลือก</button>
+    </div>`:''}
     <div id="assetGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"></div>
   `;
   lucide.createIcons();
   renderAssetGrid();
 }
 
-function renderAssetGrid(){
+const assetPrintSel = new Set();
+
+function assetFiltered(){
   const q = ($('#assetSearch')?.value||'').toLowerCase();
   const st = $('#assetStatusFilter')?.value || '';
   const cat = $('#assetCategoryFilter')?.value || '';
+  return state.assets.filter(a=>(!st || a.status===st) && (!cat || a.category===cat) && (!q || a.name.toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.asset_code||'').toLowerCase().includes(q)));
+}
+
+function renderAssetGrid(){
   const canManage = state.user.role !== 'employee';
-  const list = state.assets.filter(a=>(!st || a.status===st) && (!cat || a.category===cat) && (!q || a.name.toLowerCase().includes(q) || (a.category||'').toLowerCase().includes(q) || (a.asset_code||'').toLowerCase().includes(q)));
+  const list = assetFiltered();
   $('#assetGrid').innerHTML = list.map(a=>{
     const loan = activeLoanOf(a.id);
     return `<div class="card !p-3">
@@ -1480,17 +1603,20 @@ function renderAssetGrid(){
           <p class="text-[10px] text-slate-400 truncate">${escapeHtml(a.asset_code||'-')}</p>
           <p class="text-sm font-medium text-slate-700 truncate" title="${escapeHtml(a.name)}">${escapeHtml(a.name)}</p>
         </div>
+        ${canManage?`<input type="checkbox" ${assetPrintSel.has(a.id)?'checked':''} onchange="toggleAssetSel('${a.id}', this.checked)" title="เลือกเพื่อพิมพ์การ์ด" class="w-4 h-4 accent-sky-400 shrink-0 cursor-pointer">`:''}
       </div>
       <p class="text-[11px] text-slate-400 truncate mb-1.5" title="${escapeHtml((a.category||'')+' · '+(a.location||''))}">${escapeHtml(a.category||'ไม่ระบุประเภท')} · ${escapeHtml(a.location||'-')}</p>
       <div class="flex items-center gap-1 flex-wrap mb-2">${statusBadge(a.status)}${loan?`<span class="badge !px-2 !py-0.5 text-[10px] bg-violet-100 text-violet-600">ถูกยืมอยู่</span>`:''}</div>
       <div class="flex gap-1.5">
         <button onclick="openAssetLedger('${a.id}')" title="ทะเบียนคุมทรัพย์สิน" class="flex-1 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center gap-1 text-[11px] whitespace-nowrap"><i data-lucide="file-text" class="w-3.5 h-3.5"></i>${canManage?'':'ทะเบียนคุม'}</button>
-        ${canManage?`<button onclick="openAssetModal('${a.id}')" class="flex-1 h-7 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+        ${canManage?`<button onclick="openAssetLabels(['${a.id}'])" title="พิมพ์การ์ดครุภัณฑ์ (QR)" class="flex-1 h-7 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center"><i data-lucide="qr-code" class="w-3.5 h-3.5"></i></button>
+        <button onclick="openAssetModal('${a.id}')" class="flex-1 h-7 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
         <button onclick="deleteAsset('${a.id}')" class="flex-1 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>`:''}
       </div>
     </div>`;
   }).join('') || `<p class="col-span-full text-center text-slate-300 py-10">ไม่พบข้อมูลครุภัณฑ์</p>`;
   lucide.createIcons();
+  updateAssetSelBar();
 }
 
 function openAssetModal(id){
@@ -1597,6 +1723,7 @@ function deleteAsset(id){
       const { error } = await dbClient.from('fixed_assets').delete().eq('id', id);
       if(error) throw error;
       state.assets = state.assets.filter(x=>x.id!==id);
+      assetPrintSel.delete(id);
       renderAssets(); showToast('ลบสำเร็จ','success');
     }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
     finally{ hideLoader(); }
