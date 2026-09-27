@@ -3120,7 +3120,20 @@ function printStockCard(materialId){
 // ---------------------------------------------------------------------------
 // รายงานวัสดุ: รับเข้า / เบิก / คงเหลือ (พิมพ์ A4 - PDF และส่งออก CSV)
 // ---------------------------------------------------------------------------
-const reportState = { receive:{month:''}, issue:{month:'',status:''}, balance:{month:'',category:''}, assetReg:{status:'',category:''}, assetDep:{fy:'',category:''}, assetRepair:{month:'',status:''}, assetLoan:{month:'',status:''} };
+const reportState = { receive:{from:'',to:''}, issue:{from:'',to:'',status:''}, balance:{asOf:'',category:''}, assetReg:{status:'',category:''}, assetDep:{fy:'',category:''}, assetRepair:{from:'',to:''}, assetLoan:{from:'',to:'',status:''} };
+
+// เปรียบเทียบวันที่แบบสตริง (ใช้ได้ทั้ง 'YYYY-MM-DD' และ timestamp ISO) - ว่างหมายถึงไม่จำกัด
+function dateInRange(v, from, to){
+  const d = String(v||'').slice(0,10);
+  if(from && d < from) return false;
+  if(to && d > to) return false;
+  return true;
+}
+function dateRangeText(from, to){
+  if(!from && !to) return 'ทุกช่วงเวลา';
+  if(from && to) return `${fmtDateOnly(from)} – ${fmtDateOnly(to)}`;
+  return from ? `ตั้งแต่ ${fmtDateOnly(from)}` : `ถึง ${fmtDateOnly(to)}`;
+}
 const REPORT_TITLES = { receive:'รายงานการรับเข้าวัสดุ', issue:'รายงานการเบิกวัสดุ', balance:'รายงานวัสดุคงเหลือ', assetReg:'รายงานทะเบียนครุภัณฑ์', assetDep:'รายงานค่าเสื่อมราคาครุภัณฑ์', assetRepair:'รายงานการซ่อมบำรุงครุภัณฑ์', assetLoan:'รายงานการยืม-คืนครุภัณฑ์' };
 
 function dateMonthKey(v){
@@ -3146,9 +3159,8 @@ function reportMonthKeys(kind){
 function buildReportCfg(kind){
   if(kind === 'assetReg' || kind === 'assetDep' || kind === 'assetRepair' || kind === 'assetLoan') return buildAssetReportCfg(kind);
   const st = reportState[kind];
-  const monthText = st.month ? monthKeyLabel(st.month) : null;
   if(kind === 'receive'){
-    const txs = state.stockTx.filter(t=>t.type==='รับเข้า' && (!st.month || dateMonthKey(t.created_at)===st.month))
+    const txs = state.stockTx.filter(t=>t.type==='รับเข้า' && dateInRange(t.created_at, st.from, st.to))
       .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
     const rows = txs.map((t,i)=>{
       const m = state.materials.find(x=>x.id===t.material_id);
@@ -3156,7 +3168,7 @@ function buildReportCfg(kind){
     });
     return {
       title: REPORT_TITLES.receive,
-      meta: [['ช่วงเวลา', monthText ? 'เดือน '+monthText : 'ทุกเดือน']],
+      meta: [['ช่วงเวลา', dateRangeText(st.from, st.to)]],
       headers: [{label:'ลำดับ',align:'center',w:'12mm'},{label:'วันที่',w:'22mm'},{label:'รหัสวัสดุ',w:'24mm'},{label:'รายการ'},{label:'จำนวน',align:'right',w:'16mm'},{label:'หน่วย',w:'14mm'},{label:'ผู้บันทึก',w:'26mm'},{label:'หมายเหตุ'}],
       rows,
       footer: ['','','','รวมทั้งสิ้น '+rows.length+' รายการ','','','',''],
@@ -3164,7 +3176,7 @@ function buildReportCfg(kind){
     };
   }
   if(kind === 'issue'){
-    const docs = scopedIssueRequests().filter(r=>(!st.month||dateMonthKey(r.created_at)===st.month) && (!st.status||r.status===st.status))
+    const docs = scopedIssueRequests().filter(r=>dateInRange(r.created_at, st.from, st.to) && (!st.status||r.status===st.status))
       .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
     const rows = [];
     docs.forEach(r=>{
@@ -3174,7 +3186,7 @@ function buildReportCfg(kind){
     });
     return {
       title: REPORT_TITLES.issue,
-      meta: [['ช่วงเวลา', monthText ? 'เดือน '+monthText : 'ทุกเดือน'], ['สถานะ', st.status || 'ทั้งหมด']],
+      meta: [['ช่วงเวลา', dateRangeText(st.from, st.to)], ['สถานะ', st.status || 'ทั้งหมด']],
       headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'เลขที่ใบเบิก',w:'27mm'},{label:'วันที่',w:'22mm'},{label:'ผู้เบิก',w:'26mm'},{label:'รายการ'},{label:'ขอเบิก',align:'right',w:'14mm'},{label:'จ่ายจริง',align:'right',w:'14mm'},{label:'หน่วย',w:'12mm'},{label:'สถานะ',w:'18mm'}],
       rows,
       footer: ['','','','','รวม '+docs.length+' ใบเบิก / '+rows.length+' รายการ','','','',''],
@@ -3185,7 +3197,7 @@ function buildReportCfg(kind){
     .slice().sort((a,b)=>String(a.item_code||'').localeCompare(String(b.item_code||'')));
   let low = 0, out = 0;
   const rows = list.map((m,i)=>{
-    const later = st.month ? state.stockTx.filter(t=>t.material_id===m.id && dateMonthKey(t.created_at)>st.month).reduce((s,t)=>s+txNet(t),0) : 0;
+    const later = st.asOf ? state.stockTx.filter(t=>t.material_id===m.id && String(t.created_at).slice(0,10)>st.asOf).reduce((s,t)=>s+txNet(t),0) : 0;
     const bal = Number(m.quantity) - later;
     let status = 'ปกติ';
     if(bal <= 0){ status = 'หมด'; out++; }
@@ -3195,7 +3207,7 @@ function buildReportCfg(kind){
   });
   return {
     title: REPORT_TITLES.balance,
-    meta: [['ข้อมูล ณ', monthText ? 'สิ้นเดือน '+monthText : 'ปัจจุบัน'], ['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
+    meta: [['ข้อมูล ณ', st.asOf ? fmtDateOnly(st.asOf) : 'ปัจจุบัน'], ['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
     headers: [{label:'ลำดับ',align:'center',w:'12mm'},{label:'รหัสวัสดุ',w:'26mm'},{label:'รายการ'},{label:'หมวดหมู่',w:'34mm'},{label:'หน่วย',w:'14mm'},{label:'คงเหลือ',align:'right',w:'18mm'},{label:'จุดสั่งซื้อ',align:'right',w:'18mm'},{label:'สถานะ',w:'24mm'}],
     rows,
     footer: ['','','รวม '+rows.length+' รายการ','','','','','ใกล้หมด '+low+' / หมด '+out],
@@ -3205,7 +3217,6 @@ function buildReportCfg(kind){
 
 function buildAssetReportCfg(kind){
   const st = reportState[kind];
-  const monthText = st.month ? 'เดือน ' + monthKeyLabel(st.month) : 'ทุกเดือน';
   if(kind === 'assetReg'){
     const list = state.assets.filter(a=>(!st.status||a.status===st.status) && (!st.category||a.category===st.category))
       .slice().sort((x,y)=>String(x.asset_code||'').localeCompare(String(y.asset_code||'')));
@@ -3256,7 +3267,7 @@ function buildAssetReportCfg(kind){
     };
   }
   if(kind === 'assetRepair'){
-    const list = state.assetRepairs.filter(r=>r.status!=='ยกเลิก' && (!st.month||dateMonthKey(repairDate(r))===st.month))
+    const list = state.assetRepairs.filter(r=>r.status!=='ยกเลิก' && dateInRange(repairDate(r), st.from, st.to))
       .slice().sort((x,y)=>repairDate(x).localeCompare(repairDate(y)));
     let total = 0;
     const rows = list.map((r,i)=>{
@@ -3265,19 +3276,19 @@ function buildAssetReportCfg(kind){
     });
     return {
       title: REPORT_TITLES.assetRepair,
-      meta: [['ช่วงเวลา', monthText]],
+      meta: [['ช่วงเวลา', dateRangeText(st.from, st.to)]],
       headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'เลขที่',w:'24mm'},{label:'วันที่ซ่อม',w:'22mm'},{label:'ครุภัณฑ์'},{label:'รายการซ่อม'},{label:'ผู้ซ่อม/ร้าน',w:'24mm'},{label:'ค่าซ่อม',align:'right',w:'20mm'},{label:'หมายเหตุ',w:'24mm'}],
       rows,
       footer: ['','','','รวม '+rows.length+' ครั้ง','','',fmtMoney(total),''],
       summary: `พบ ${rows.length} ครั้ง · ค่าซ่อมรวม ${fmtMoney(total)} บาท`,
     };
   }
-  const list = state.assetLoans.filter(l=>(!st.month||dateMonthKey(l.created_at)===st.month) && (!st.status || (st.status==='เกินกำหนด' ? isLoanOverdue(l) : l.status===st.status)))
+  const list = state.assetLoans.filter(l=>dateInRange(l.created_at, st.from, st.to) && (!st.status || (st.status==='เกินกำหนด' ? isLoanOverdue(l) : l.status===st.status)))
     .slice().sort((x,y)=>new Date(x.created_at)-new Date(y.created_at));
   const rows = list.map((l,i)=>[i+1, l.loan_code, getAssetName(l.asset_id), getUserName(l.borrower_id), formatDate(l.created_at), fmtDateOnly(l.due_date), l.returned_at ? formatDate(l.returned_at) : '-', l.status + (isLoanOverdue(l) ? ' (เกินกำหนด)' : '')]);
   return {
     title: REPORT_TITLES.assetLoan,
-    meta: [['ช่วงเวลา', monthText], ['สถานะ', st.status || 'ทั้งหมด']],
+    meta: [['ช่วงเวลา', dateRangeText(st.from, st.to)], ['สถานะ', st.status || 'ทั้งหมด']],
     headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'เลขที่',w:'24mm'},{label:'ครุภัณฑ์'},{label:'ผู้ยืม',w:'26mm'},{label:'วันที่ขอ',w:'21mm'},{label:'กำหนดคืน',w:'21mm'},{label:'วันที่คืน',w:'21mm'},{label:'สถานะ',w:'26mm'}],
     rows,
     footer: ['','','รวม '+rows.length+' รายการ','','','','',''],
@@ -3328,16 +3339,14 @@ function reportSheetHtml(cfg){
   </div>`;
 }
 
+function daterangeDef(label){ return { type:'daterange', keyFrom:'from', keyTo:'to', label: label || 'ช่วงวันที่' }; }
+function dateDef(key, label){ return { type:'date', key, label }; }
+
 function reportFilterDefs(kind){
-  const st = reportState[kind];
-  const months = reportMonthKeys(kind);
-  if(st.month && !months.includes(st.month)) st.month = '';
-  const isBal = kind === 'balance';
-  const monthDef = { key:'month', label: isBal ? 'ข้อมูล ณ สิ้นเดือน' : 'เดือน', options:[['', isBal ? 'ปัจจุบัน' : 'ทุกเดือน'], ...months.map(k=>[k, monthKeyLabel(k)])] };
   const statusDef = (list) => ({ key:'status', label:'สถานะ', options:[['','ทั้งหมด'], ...list.map(x=>[x,x])] });
-  if(kind === 'receive') return [monthDef];
-  if(kind === 'issue') return [monthDef, statusDef(['รออนุมัติ','อนุมัติ','ไม่อนุมัติ'])];
-  if(kind === 'balance') return [monthDef, { key:'category', label:'หมวดหมู่', options:[['','ทุกหมวดหมู่'], ...MATERIAL_CATEGORIES.map(c=>[c,c])] }];
+  if(kind === 'receive') return [daterangeDef()];
+  if(kind === 'issue') return [daterangeDef(), statusDef(['รออนุมัติ','อนุมัติ','ไม่อนุมัติ'])];
+  if(kind === 'balance') return [dateDef('asOf','ข้อมูล ณ วันที่'), { key:'category', label:'หมวดหมู่', options:[['','ทุกหมวดหมู่'], ...MATERIAL_CATEGORIES.map(c=>[c,c])] }];
   if(kind === 'assetReg'){
     return [statusDef(ASSET_STATUSES), { key:'category', label:'ประเภท', options:[['','ทุกประเภท'], ...assetCategoriesInUse().map(c=>[c,c])] }];
   }
@@ -3349,17 +3358,27 @@ function reportFilterDefs(kind){
     if(!st.fy || !list.includes(st.fy)) st.fy = String(cur);
     return [{ key:'fy', label:'ปีงบประมาณ', options: list.map(y=>[y, 'ปีงบประมาณ '+y]) }, { key:'category', label:'ประเภท', options:[['','ทุกประเภท'], ...assetCategoriesInUse().map(c=>[c,c])] }];
   }
-  if(kind === 'assetRepair') return [monthDef];
-  return [monthDef, statusDef(['รออนุมัติ','ยืมอยู่','เกินกำหนด','คืนแล้ว','ไม่อนุมัติ','ยกเลิก'])];
+  if(kind === 'assetRepair') return [daterangeDef()];
+  return [daterangeDef(), statusDef(['รออนุมัติ','ยืมอยู่','เกินกำหนด','คืนแล้ว','ไม่อนุมัติ','ยกเลิก'])];
 }
 
 function renderReport(kind){
   const st = reportState[kind];
-  const filters = reportFilterDefs(kind).map(d=>`
-    <div><label class="text-xs text-slate-400 block mb-1">${d.label}</label>
+  const filters = reportFilterDefs(kind).map(d=>{
+    if(d.type === 'daterange'){
+      return `<div><label class="text-xs text-slate-400 block mb-1">${d.label}</label><div class="flex items-center gap-1.5">
+        <input type="date" class="input-field !py-2 !w-auto" value="${st[d.keyFrom]||''}" onchange="setReportFilter('${kind}','${d.keyFrom}',this.value)">
+        <span class="text-slate-300 text-xs">ถึง</span>
+        <input type="date" class="input-field !py-2 !w-auto" value="${st[d.keyTo]||''}" onchange="setReportFilter('${kind}','${d.keyTo}',this.value)"></div></div>`;
+    }
+    if(d.type === 'date'){
+      return `<div><label class="text-xs text-slate-400 block mb-1">${d.label}</label><input type="date" class="input-field !py-2 !w-auto" value="${st[d.key]||''}" onchange="setReportFilter('${kind}','${d.key}',this.value)"></div>`;
+    }
+    return `<div><label class="text-xs text-slate-400 block mb-1">${d.label}</label>
       <select class="input-field !py-2 !w-auto min-w-[9rem]" onchange="setReportFilter('${kind}','${d.key}',this.value)">
         ${d.options.map(([v,l])=>`<option value="${escapeHtml(v)}" ${v===(st[d.key]||'')?'selected':''}>${escapeHtml(l)}</option>`).join('')}
-      </select></div>`).join('');
+      </select></div>`;
+  }).join('');
   $('#mainContent').innerHTML = `
     <div class="card !p-4 flex flex-wrap items-end gap-3 mb-4">
       ${filters}
@@ -3426,8 +3445,8 @@ let drugReceiveCart = { 'เวชภัณฑ์':[], 'เวชภัณฑ์
 let drugIssueCart = [];
 let drugTrackFilter = { 'เวชภัณฑ์':'', 'เวชภัณฑ์มิใช่ยา':'' };
 let drugReportState = {
-  'เวชภัณฑ์': { kind:'receive', month:'', status:'', category:'' },
-  'เวชภัณฑ์มิใช่ยา': { kind:'receive', month:'', status:'', category:'' },
+  'เวชภัณฑ์': { kind:'receive', from:'', to:'', status:'', category:'', asOf:'' },
+  'เวชภัณฑ์มิใช่ยา': { kind:'receive', from:'', to:'', status:'', category:'', asOf:'' },
 };
 
 function renderDrugGroup(group){
@@ -4375,12 +4394,12 @@ function buildDrugReportCfg(group, kind){
   const monthText = st.month ? monthKeyLabel(st.month) : null;
   if(kind === 'receive'){
     const ids = new Set(drugItemsOf(group).map(x=>x.id));
-    const list = state.drugStockTx.filter(t=>t.type==='รับเข้า' && ids.has(t.item_id) && (!st.month||dateMonthKey(t.created_at)===st.month))
+    const list = state.drugStockTx.filter(t=>t.type==='รับเข้า' && ids.has(t.item_id) && dateInRange(t.created_at, st.from, st.to))
       .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
     const rows = list.map((t,i)=>[i+1, formatDate(t.created_at), getDrugNameOnly(t.item_id), t.quantity, getUserName(t.performed_by), t.note||'-']);
     return {
       title: `รายงานการรับเข้า${group}`,
-      meta: [['ช่วงเวลา', monthText || 'ทุกเดือน']],
+      meta: [['ช่วงเวลา', dateRangeText(st.from, st.to)]],
       headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'วันที่',w:'26mm'},{label:'รายการ'},{label:'จำนวน',align:'right',w:'20mm'},{label:'ผู้บันทึก',w:'26mm'},{label:'หมายเหตุ',w:'30mm'}],
       rows,
       footer: ['','','รวม '+rows.length+' รายการ',rows.reduce((s,r)=>s+Number(r[3]),0),'',''],
@@ -4388,13 +4407,13 @@ function buildDrugReportCfg(group, kind){
     };
   }
   if(kind === 'issue'){
-    const list = drugRequestsOf(group).filter(r=>(!st.month||dateMonthKey(r.created_at)===st.month) && (!st.status||r.status===st.status))
+    const list = drugRequestsOf(group).filter(r=>dateInRange(r.created_at, st.from, st.to) && (!st.status||r.status===st.status))
       .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
     const rows = [];
     list.forEach(r=>(r.items||[]).forEach(it=>rows.push([rows.length+1, r.issue_code, formatDate(r.created_at), it.item?.name||'-', it.quantity, r.status==='อนุมัติ'?drugIssuedQty(it):'-', r.status])));
     return {
       title: `รายงานการเบิก${group}`,
-      meta: [['ช่วงเวลา', monthText || 'ทุกเดือน'], ['สถานะ', st.status || 'ทั้งหมด']],
+      meta: [['ช่วงเวลา', dateRangeText(st.from, st.to)], ['สถานะ', st.status || 'ทั้งหมด']],
       headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'เลขที่ใบเบิก',w:'26mm'},{label:'วันที่',w:'24mm'},{label:'รายการ'},{label:'ขอเบิก',align:'right',w:'18mm'},{label:'จ่ายจริง',align:'right',w:'18mm'},{label:'สถานะ',w:'22mm'}],
       rows,
       footer: ['','','','รวม '+rows.length+' รายการ','','',''],
@@ -4402,10 +4421,14 @@ function buildDrugReportCfg(group, kind){
     };
   }
   const list = drugItemsOf(group).filter(d=>!st.category||d.category===st.category).slice().sort((a,b)=>String(a.item_code).localeCompare(String(b.item_code)));
-  const rows = list.map((d,i)=>[i+1, d.item_code||'-', d.name, d.category||'-', d.quantity, d.unit, Number(d.quantity)<=Number(d.min_quantity)?'ใกล้หมด/หมด':'ปกติ']);
+  const rows = list.map((d,i)=>{
+    const later = st.asOf ? state.drugStockTx.filter(t=>t.item_id===d.id && String(t.created_at).slice(0,10)>st.asOf).reduce((s,t)=>s+drugTxNet(t),0) : 0;
+    const bal = Number(d.quantity) - later;
+    return [i+1, d.item_code||'-', d.name, d.category||'-', bal, d.unit, bal<=Number(d.min_quantity)?'ใกล้หมด/หมด':'ปกติ'];
+  });
   return {
     title: `รายงาน${group}คงเหลือ`,
-    meta: [['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
+    meta: [['ข้อมูล ณ', st.asOf ? fmtDateOnly(st.asOf) : 'ปัจจุบัน'], ['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
     headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'รหัส',w:'24mm'},{label:'รายการ'},{label:'หมวดหมู่',w:'30mm'},{label:'คงเหลือ',align:'right',w:'18mm'},{label:'หน่วย',w:'16mm'},{label:'สถานะ',w:'20mm'}],
     rows,
     footer: [],
@@ -4414,14 +4437,13 @@ function buildDrugReportCfg(group, kind){
 }
 
 function renderDrugReportTab(group){
-  const st = drugReportState[group];
   $('#drugTabBody-'+drugGK(group)).innerHTML = `
     <div class="card !p-4 flex flex-wrap items-end gap-3 mb-4">
       <div><label class="text-xs text-slate-400 block mb-1">ประเภทรายงาน</label>
         <select id="dr_kind" class="input-field !py-2 !w-auto min-w-[10rem]" onchange="setDrugReportKind('${group}', this.value)">
-          <option value="receive" ${st.kind==='receive'?'selected':''}>รายงานการรับเข้า</option>
-          <option value="issue" ${st.kind==='issue'?'selected':''}>รายงานการเบิก</option>
-          <option value="balance" ${st.kind==='balance'?'selected':''}>รายงานคงเหลือ</option>
+          <option value="receive" ${drugReportState[group].kind==='receive'?'selected':''}>รายงานการรับเข้า</option>
+          <option value="issue" ${drugReportState[group].kind==='issue'?'selected':''}>รายงานการเบิก</option>
+          <option value="balance" ${drugReportState[group].kind==='balance'?'selected':''}>รายงานคงเหลือ</option>
         </select>
       </div>
       <div id="drFilterExtra" class="flex flex-wrap items-end gap-3"></div>
@@ -4442,15 +4464,18 @@ function setDrugReportFilter(group, key, val){ drugReportState[group][key] = val
 
 function updateDrugReportView(group){
   const st = drugReportState[group];
-  const months = [...new Set((st.kind==='receive' ? state.drugStockTx.filter(t=>t.type==='รับเข้า') : drugRequestsOf(group)).map(x=>dateMonthKey(x.created_at)))].sort().reverse();
   let extra = '';
   if(st.kind === 'receive' || st.kind === 'issue'){
-    extra += `<div><label class="text-xs text-slate-400 block mb-1">เดือน</label><select class="input-field !py-2 !w-auto" onchange="setDrugReportFilter('${group}','month',this.value)"><option value="">ทุกเดือน</option>${months.map(k=>`<option value="${k}" ${st.month===k?'selected':''}>${monthKeyLabel(k)}</option>`).join('')}</select></div>`;
+    extra += `<div><label class="text-xs text-slate-400 block mb-1">ช่วงวันที่</label><div class="flex items-center gap-1.5">
+      <input type="date" class="input-field !py-2 !w-auto" value="${st.from||''}" onchange="setDrugReportFilter('${group}','from',this.value)">
+      <span class="text-slate-300 text-xs">ถึง</span>
+      <input type="date" class="input-field !py-2 !w-auto" value="${st.to||''}" onchange="setDrugReportFilter('${group}','to',this.value)"></div></div>`;
   }
   if(st.kind === 'issue'){
     extra += `<div><label class="text-xs text-slate-400 block mb-1">สถานะ</label><select class="input-field !py-2 !w-auto" onchange="setDrugReportFilter('${group}','status',this.value)"><option value="">ทั้งหมด</option>${['รออนุมัติ','อนุมัติ','ไม่อนุมัติ'].map(s=>`<option value="${s}" ${st.status===s?'selected':''}>${s}</option>`).join('')}</select></div>`;
   }
   if(st.kind === 'balance'){
+    extra += `<div><label class="text-xs text-slate-400 block mb-1">ข้อมูล ณ วันที่</label><input type="date" class="input-field !py-2 !w-auto" value="${st.asOf||''}" onchange="setDrugReportFilter('${group}','asOf',this.value)"></div>`;
     extra += `<div><label class="text-xs text-slate-400 block mb-1">หมวดหมู่</label><select class="input-field !py-2 !w-auto" onchange="setDrugReportFilter('${group}','category',this.value)"><option value="">ทุกหมวดหมู่</option>${DRUG_CATEGORIES[group].map(c=>`<option value="${escapeHtml(c)}" ${st.category===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select></div>`;
   }
   if($('#drFilterExtra')) $('#drFilterExtra').innerHTML = extra;
