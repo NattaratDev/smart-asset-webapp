@@ -241,7 +241,7 @@ Chart.defaults.font.family = 'Kanit';
 const SESSION_KEY = 'smartasset_session';
 let pendingAssetId = normalizeAssetId(new URLSearchParams(location.search).get('a'));
 function normalizeAssetId(v){ v = String(v||'').trim().toLowerCase(); return /^[0-9a-f]{32}$/.test(v) ? v.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5') : v; }   // มาจากการสแกน QR บนการ์ดครุภัณฑ์
-const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], assetReceipts: [], assetRepairs: [], assetLoans: [], medEquipment: [], medLoans: [], drugItems: [], drugIssueRequests: [], drugStockTx: [], settings: {}, charts: {} };
+const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], assetReceipts: [], assetRepairs: [], assetLoans: [], medEquipment: [], medLoans: [], drugItems: [], drugIssueRequests: [], drugStockTx: [], permissions: {}, settings: {}, charts: {} };
 
 const MENU_ITEMS = {
   dashboard:   { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
@@ -309,14 +309,90 @@ const ROLE_BOTTOM_NAV_KEYS = {
   employee: ['dashboard','matStock','assets','matIssue'],
 };
 
+// ---------------------------------------------------------------------------
+// สิทธิ์รายเมนู รายบุคคล (ดู/แก้ไข/อนุมัติ) - อิสระต่อคน ไม่ผูกกับ role ตายตัว
+// role ยังคงมีไว้เป็นแค่ "ค่าเริ่มต้น" ตอนสร้างพนักงานใหม่ (ดู ROLE_DEFAULT_PERMS)
+// ---------------------------------------------------------------------------
+const PERM_LEVEL_ORDER = { view:1, edit:2, approve:3 };
+const PERM_LEVEL_LABEL = { view:'ดู', edit:'แก้ไข', approve:'อนุมัติ' };
+const PERM_CATALOG = [
+  { group:'วัสดุ', items:[
+    { key:'matStock', label:'คลังวัสดุ', levels:['view','edit'] },
+    { key:'matReceive', label:'รับเข้าวัสดุ', levels:['view','edit'] },
+    { key:'matIssue', label:'เบิกวัสดุ', levels:['view','edit'] },
+    { key:'matTrack', label:'ติดตามสถานะการเบิก', levels:['view','approve'] },
+    { key:'matCard', label:'Stock Card', levels:['view'] },
+    { key:'repReceive', label:'รายงานการรับเข้าวัสดุ', levels:['view'] },
+    { key:'repIssue', label:'รายงานการเบิกวัสดุ', levels:['view'] },
+    { key:'repBalance', label:'รายงานคงเหลือ', levels:['view'] },
+  ]},
+  { group:'ครุภัณฑ์', items:[
+    { key:'assets', label:'ทะเบียนครุภัณฑ์', levels:['view','edit'] },
+    { key:'assetReceive', label:'รับครุภัณฑ์', levels:['view','edit'] },
+    { key:'assetRepair', label:'ซ่อมบำรุง', levels:['view','edit'] },
+    { key:'assetLoan', label:'ยืม-คืน', levels:['view','edit','approve'] },
+    { key:'repAssetReg', label:'รายงานทะเบียนครุภัณฑ์', levels:['view'] },
+    { key:'repAssetDep', label:'รายงานค่าเสื่อมราคา', levels:['view'] },
+    { key:'repAssetRepair', label:'รายงานการซ่อมบำรุง', levels:['view'] },
+    { key:'repAssetLoan', label:'รายงานการยืม-คืน', levels:['view'] },
+  ]},
+  { group:'เวชภัณฑ์', items:[
+    { key:'drugMed', label:'เวชภัณฑ์', levels:['view','edit','approve'] },
+    { key:'drugNonMed', label:'เวชภัณฑ์มิใช่ยา', levels:['view','edit','approve'] },
+  ]},
+  { group:'ยืม-คืนอุปกรณ์การแพทย์', items:[
+    { key:'medEquip', label:'ทะเบียนอุปกรณ์', levels:['view','edit'] },
+    { key:'medLoan', label:'ยืมอุปกรณ์', levels:['view','edit'] },
+    { key:'medReturn', label:'คืนอุปกรณ์', levels:['view','edit'] },
+  ]},
+  { group:'ระบบ', items:[
+    { key:'employees', label:'พนักงาน', levels:['view','edit'] },
+    { key:'settings', label:'ตั้งค่าระบบ', levels:['view','edit'] },
+  ]},
+];
+const PERM_KEY_INFO = {}; PERM_CATALOG.forEach(g=>g.items.forEach(it=>PERM_KEY_INFO[it.key]=it));
+
+const ROLE_DEFAULT_PERMS = {
+  admin: { matStock:'edit', matReceive:'edit', matIssue:'edit', matTrack:'approve', matCard:'view', repReceive:'view', repIssue:'view', repBalance:'view',
+    assets:'edit', assetReceive:'edit', assetRepair:'edit', assetLoan:'approve', repAssetReg:'view', repAssetDep:'view', repAssetRepair:'view', repAssetLoan:'view',
+    drugMed:'approve', drugNonMed:'approve', medEquip:'edit', medLoan:'edit', medReturn:'edit', employees:'edit', settings:'edit' },
+  staff: { matStock:'edit', matReceive:'edit', matIssue:'edit', matTrack:'approve', matCard:'view', repReceive:'view', repIssue:'view', repBalance:'view',
+    assets:'edit', assetReceive:'edit', assetRepair:'edit', assetLoan:'approve', repAssetReg:'view', repAssetDep:'view', repAssetRepair:'view', repAssetLoan:'view',
+    drugMed:'approve', drugNonMed:'approve', medEquip:'edit', medLoan:'edit', medReturn:'edit' },
+  employee: { matStock:'view', matIssue:'edit', matTrack:'view', matCard:'view', repIssue:'view', repBalance:'view',
+    assets:'view', assetRepair:'view', assetLoan:'edit', drugMed:'edit', drugNonMed:'edit', medEquip:'view' },
+};
+function defaultPermsForRole(role){ return { ...(ROLE_DEFAULT_PERMS[role] || {}) }; }
+
+// ระดับสูงครอบคลุมระดับต่ำกว่าเสมอ (มี approve ก็มี edit/view ด้วย)
+function hasPerm(menuKey, level){
+  const lvl = (state.permissions[state.user?.id] || {})[menuKey];
+  return !!lvl && PERM_LEVEL_ORDER[lvl] >= PERM_LEVEL_ORDER[level];
+}
+// เดาว่า "เป็นผู้จัดการ" หรือไม่ (ใช้เลือกมุมมองแดชบอร์ดเท่านั้น ไม่ใช่จุดตรวจสอบสิทธิ์จริง)
+function isPrivilegedUser(){
+  return ['matStock','assets','drugMed','drugNonMed','medEquip'].some(k=>hasPerm(k,'edit'));
+}
+
+// เดินต้นไม้เมนูเต็ม (ROLE_MENU.admin คือ superset ของทุกเมนูที่มีในระบบ) เหลือเฉพาะที่ผู้ใช้คนนี้มีสิทธิ์ "ดู"
+function effectiveMenuTree(){
+  const walk = nodes => (nodes||[]).map(n=>{
+    if(n.group){ const kids = walk(n.children); return kids.length ? { ...n, children: kids } : null; }
+    if(n.key==='dashboard' || n.key==='profile' || hasPerm(n.key,'view')) return n;
+    return null;
+  }).filter(Boolean);
+  return walk(ROLE_MENU.admin);
+}
+
+
 function menuLeaves(nodes){
   const out = [];
   (nodes||[]).forEach(n=>{ if(n.key) out.push(n.key); if(n.children) out.push(...menuLeaves(n.children)); });
   return out;
 }
 
-function flatMenuKeys(role){
-  return menuLeaves(ROLE_MENU[role]);
+function flatMenuKeys(){
+  return menuLeaves(effectiveMenuTree());
 }
 
 const MATERIAL_CATEGORIES = [
@@ -651,16 +727,17 @@ async function fetchAll(){
     const results = await Promise.all([
       q('users'), q('materials'), q('fixed_assets'), q('material_stock_transactions'),
       dbClient.from('material_issue_requests').select('*, items:material_issue_items(id, material_id, quantity, approved_quantity, material:materials(name,unit,item_code))').order('created_at',{ascending:false}),
-      q('asset_receipts'), q('asset_repairs'), q('asset_loans'), q('medical_equipment'), q('medical_loans'), q('drug_items'), q('drug_stock_transactions'),
+      q('asset_receipts'), q('asset_repairs'), q('asset_loans'), q('medical_equipment'), q('medical_loans'), q('drug_items'), q('drug_stock_transactions'), dbClient.from('user_permissions').select('*'),
       dbClient.from('drug_issue_requests').select('*, items:drug_issue_items(id, item_id, quantity, approved_quantity, item:drug_items(name,unit,item_code))').order('created_at',{ascending:false}),
     ]);
     const failed = results.find(r=>r.error);
     if(failed) throw failed.error;
-    const [users, materials, assets, stockTx, issueRequests, receipts, repairs, loans, medEquipment, medLoans, drugItems, drugStockTx, drugIssueRequests] = results.map(r=>r.data||[]);
+    const [users, materials, assets, stockTx, issueRequests, receipts, repairs, loans, medEquipment, medLoans, drugItems, drugStockTx, userPerms, drugIssueRequests] = results.map(r=>r.data||[]);
     state.users = users; state.materials = materials; state.assets = assets; state.stockTx = stockTx; state.issueRequests = issueRequests;
     state.assetReceipts = receipts; state.assetRepairs = repairs; state.assetLoans = loans;
     state.medEquipment = medEquipment; state.medLoans = medLoans;
     state.drugItems = drugItems; state.drugStockTx = drugStockTx; state.drugIssueRequests = drugIssueRequests;
+    const permMap = {}; userPerms.forEach(p=>{ (permMap[p.user_id] ||= {})[p.menu_key] = p.level; }); state.permissions = permMap;
   }catch(err){ showToast('โหลดข้อมูลล้มเหลว: '+err.message,'error'); }
   finally{ hideLoader(); }
 }
@@ -717,7 +794,7 @@ function menuAncestorIds(nodes, key, trail=[]){
 }
 
 function openMenuAncestors(view){
-  (menuAncestorIds(ROLE_MENU[state.user.role], view) || []).forEach(id=>applyMenuOpen(id, true));
+  (menuAncestorIds(effectiveMenuTree(), view) || []).forEach(id=>applyMenuOpen(id, true));
 }
 
 function sidebarNodeHtml(n, depth, parentId=''){
@@ -747,7 +824,7 @@ function sidebarNodeHtml(n, depth, parentId=''){
 }
 
 function buildSidebar(){
-  const nodes = ROLE_MENU[state.user.role] || [];
+  const nodes = effectiveMenuTree();
   $('#sidebarNav').innerHTML = nodes.map(n=>sidebarNodeHtml(n, 0)).join('');
   $('#sidebarUserName').textContent = state.user.full_name;
   $('#sidebarUserRole').textContent = roleLabel(state.user.role);
@@ -761,10 +838,10 @@ function buildSidebar(){
   lucide.createIcons();
 }
 
-function menuPanelSections(role){
+function menuPanelSections(){
   const sections = [];
   let cur = null;
-  (ROLE_MENU[role] || []).forEach(n=>{
+  effectiveMenuTree().forEach(n=>{
     if(n.group){
       const sec = { title:n.group, items:[] };
       sections.push(sec);
@@ -785,7 +862,9 @@ function menuPanelSections(role){
 }
 
 function buildBottomNav(){
-  const keys = ROLE_BOTTOM_NAV_KEYS[state.user.role] || [];
+  const preferred = (ROLE_BOTTOM_NAV_KEYS[state.user.role] || []).filter(k=>k==='dashboard'||k==='profile'||hasPerm(k,'view'));
+  const leaves = menuLeaves(effectiveMenuTree());
+  const keys = [...preferred, ...leaves.filter(k=>!preferred.includes(k))].slice(0,4);
   let html = keys.slice(0,2).map(k=>navBtnHtml(k)).join('');
   html += `<button onclick="toggleAdminPanel()" aria-label="เมนูทั้งหมด" class="flex flex-col items-center justify-center -mt-6">
       <span class="w-14 h-14 rounded-full bg-gradient-to-br from-sky-300 to-pink-300 shadow-soft flex items-center justify-center text-white"><i data-lucide="layout-grid" class="w-6 h-6"></i></span>
@@ -804,7 +883,7 @@ function buildBottomNav(){
       <i data-lucide="log-out" class="w-6 h-6 text-rose-400"></i>
       <span class="text-xs text-rose-500">ออกจากระบบ</span>
     </button>`;
-  const sections = menuPanelSections(state.user.role);
+  const sections = menuPanelSections();
   $('#adminPanelGrid').innerHTML = sections.map((sec, i)=>`
     ${sec.title ? `<div class="text-xs font-semibold text-slate-400 mt-4 mb-2">${sec.title}</div>` : (i ? '<div class="mt-4"></div>' : '')}
     <div class="grid grid-cols-3 gap-3">${sec.items.map(tile).join('')}${i === sections.length-1 ? logout : ''}</div>`).join('');
@@ -828,7 +907,7 @@ function updateActiveNav(){
 
 function navigate(view){
   const item = MENU_ITEMS[view];
-  if(!flatMenuKeys(state.user.role).includes(view)){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); return; }
+  if(!flatMenuKeys().includes(view)){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); return; }
   state.currentView = view;
   closeAdminPanel();
   closeUserMenu();
@@ -880,7 +959,7 @@ function getUnifiedActivity(){
 }
 
 function renderDashboard(){
-  const isPriv = state.user.role !== 'employee';
+  const isPriv = isPrivilegedUser();
   const allActivity = getUnifiedActivity();
   const myActivity = allActivity.filter(r=>r.requester_id===state.user.id);
   const pending = allActivity.filter(r=>ACTIVITY_PENDING.includes(r.status));
@@ -969,7 +1048,7 @@ function renderEmployees(){
       </div>
       <div class="flex gap-2">
         <button onclick="exportCSV(state.users,'employees.csv',['employee_code','full_name','username','role','department','position','phone','email'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>
-        <button onclick="openUserModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มพนักงาน</button>
+        ${hasPerm('employees','edit')?`<button onclick="openUserModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มพนักงาน</button>`:''}
       </div>
     </div>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
@@ -991,18 +1070,62 @@ function renderEmployeeTable(){
       <td class="py-2 pr-3">${roleBadge(u.role)}</td>
       <td class="py-2 pr-3 text-slate-500">${escapeHtml(u.department||'-')}</td>
       <td class="py-2 pr-3">${u.is_active?'<span class="badge bg-emerald-100 text-emerald-600">ใช้งาน</span>':'<span class="badge bg-slate-200 text-slate-500">ปิดใช้งาน</span>'}</td>
-      <td class="py-2"><div class="flex gap-2">
+      <td class="py-2">${hasPerm('employees','edit')?`<div class="flex gap-2">
         <button onclick="openUserModal('${u.id}')" class="w-8 h-8 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-4 h-4"></i></button>
         <button onclick="deleteUser('${u.id}')" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
-      </div></td>
+      </div>`:''}</td>
     </tr>`).join('') || `<tr><td colspan="7" class="py-8 text-center text-slate-300">ไม่พบข้อมูล</td></tr>`;
   lucide.createIcons();
+}
+
+let formPerms = {};
+let permLockedKeys = [];
+
+function permMatrixRowsHtml(){
+  return PERM_CATALOG.map(g=>`
+    <div class="mb-2">
+      <p class="text-[11px] font-semibold text-slate-400 mt-2 mb-1">${escapeHtml(g.group)}</p>
+      ${g.items.map(it=>{
+        const cur = formPerms[it.key] || '';
+        const idx = ['view','edit','approve'].indexOf(cur);
+        const locked = permLockedKeys.includes(it.key);
+        return `<div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-1.5 mb-1">
+          <span class="text-xs text-slate-600">${escapeHtml(it.label)}</span>
+          <div class="flex gap-3">
+            ${it.levels.map((lv,i)=>`<label class="flex items-center gap-1 text-[11px] text-slate-500 ${locked?'opacity-60':''}"><input type="checkbox" class="w-3.5 h-3.5 rounded" ${idx>=i?'checked':''} ${locked?'disabled':''} onchange="togglePermLevel('${it.key}','${lv}',this.checked)">${PERM_LEVEL_LABEL[lv]}</label>`).join('')}
+          </div>
+        </div>`;
+      }).join('')}
+    </div>`).join('');
+}
+
+function renderPermMatrixBody(){
+  const el = $('#permMatrixBody');
+  if(el) el.innerHTML = permMatrixRowsHtml();
+}
+
+function togglePermLevel(key, level, checked){
+  const order = ['view','edit','approve'];
+  const idx = order.indexOf(level);
+  formPerms[key] = checked ? level : (idx === 0 ? '' : order[idx-1]);
+  renderPermMatrixBody();
+}
+
+function applyRoleDefaultsToForm(){
+  const role = $('#f_role').value;
+  formPerms = defaultPermsForRole(role);
+  permLockedKeys.forEach(k=>{ formPerms[k] = 'edit'; });
+  renderPermMatrixBody();
+  showToast(`ตั้งค่าสิทธิ์ตามบทบาท "${roleLabel(role)}" แล้ว (ยังไม่บันทึกจนกว่าจะกด "บันทึก")`,'info');
 }
 
 function openUserModal(id){
   const record = id ? state.users.find(u=>u.id===id) : null;
   const isEdit = !!record;
-  const canEditRole = state.user.role === 'admin';
+  const canEditRole = hasPerm('employees','edit');
+  formPerms = record ? { ...(state.permissions[record.id]||{}) } : defaultPermsForRole('employee');
+  permLockedKeys = (record && record.id === state.user.id) ? ['employees','settings'] : [];
+  permLockedKeys.forEach(k=>{ formPerms[k] = 'edit'; });
   openModal(isEdit?'แก้ไขข้อมูลพนักงาน':'เพิ่มพนักงานใหม่', `
     <form id="userForm" class="space-y-3">
       <div>
@@ -1041,6 +1164,14 @@ function openUserModal(id){
           <label for="f_is_active" class="text-sm text-slate-500">เปิดใช้งานบัญชี</label>
         </div>` : ''}
       </div>
+      ${canEditRole?`<div class="border-t border-slate-100 pt-3 mt-1">
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-sm font-medium text-slate-600">สิทธิ์การใช้งานรายเมนู</p>
+          <button type="button" onclick="applyRoleDefaultsToForm()" class="text-xs text-sky-500 hover:underline">ใช้ค่าเริ่มต้นของบทบาทที่เลือก</button>
+        </div>
+        <div id="permMatrixBody" class="max-h-64 overflow-y-auto pr-1">${permMatrixRowsHtml()}</div>
+        ${permLockedKeys.length?'<p class="text-[11px] text-amber-500 mt-1">ล็อกสิทธิ์ "พนักงาน" และ "ตั้งค่าระบบ" ไว้ที่ระดับแก้ไข เพื่อป้องกันการล็อกตัวเองออกจากระบบ</p>':''}
+      </div>`:''}
       <div class="flex justify-end gap-2 pt-3">
         <button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button>
         <button type="submit" class="btn-primary">บันทึก</button>
@@ -1064,7 +1195,7 @@ async function submitUserForm(e, record){
       phone: $('#f_phone').value.trim() || null,
       email: $('#f_email').value.trim() || null,
     };
-    if(state.user.role === 'admin'){
+    if(hasPerm('employees','edit')){
       payload.role = $('#f_role').value;
       if(record) payload.is_active = $('#f_is_active').checked;
     }
@@ -1073,10 +1204,12 @@ async function submitUserForm(e, record){
     const file = $('#userAvatarFile').files[0];
     if(file) payload.avatar_url = await uploadImage(file, 'avatars');
 
+    let savedUser;
     if(record){
       const { data, error } = await dbClient.from('users').update(payload).eq('id', record.id).select().single();
       if(error) throw error;
       Object.assign(record, data);
+      savedUser = record;
       if(state.user.id === record.id){
         const updated = { ...state.user, ...data }; delete updated.password_hash;
         state.user = updated; persistSession(); buildSidebar();
@@ -1087,6 +1220,18 @@ async function submitUserForm(e, record){
       const { data, error } = await dbClient.from('users').insert(payload).select().single();
       if(error) throw error;
       state.users.unshift(data);
+      savedUser = data;
+    }
+    if(hasPerm('employees','edit')){
+      if(savedUser.id === state.user.id) permLockedKeys.forEach(k=>{ formPerms[k] = 'edit'; });
+      const rows = Object.entries(formPerms).filter(([,lvl])=>lvl).map(([menu_key,level])=>({ user_id: savedUser.id, menu_key, level }));
+      await dbClient.from('user_permissions').delete().eq('user_id', savedUser.id);
+      if(rows.length){ const { error: pe } = await dbClient.from('user_permissions').insert(rows); if(pe) throw pe; }
+      state.permissions[savedUser.id] = Object.fromEntries(rows.map(r=>[r.menu_key, r.level]));
+      if(savedUser.id === state.user.id){
+        buildSidebar(); buildBottomNav();
+        if(!flatMenuKeys().includes(state.currentView)) navigate('dashboard');
+      }
     }
     closeModal();
     if(state.currentView==='employees') renderEmployeeTable();
@@ -1115,7 +1260,7 @@ function deleteUser(id){
 // Materials
 // ---------------------------------------------------------------------------
 function renderMaterials(){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('matStock','edit');
   $('#mainContent').innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="flex flex-wrap gap-2 flex-1">
@@ -1129,7 +1274,7 @@ function renderMaterials(){
         </select>
       </div>
       <div class="flex gap-2">
-        ${state.user.role==='admin'?`<button onclick="exportCSV(state.materials,'materials.csv',['item_code','name','category','unit','quantity','min_quantity'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+        ${canManage?`<button onclick="exportCSV(state.materials,'materials.csv',['item_code','name','category','unit','quantity','min_quantity'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
         ${canManage?`<button onclick="openMaterialModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มวัสดุ</button>`:''}
       </div>
     </div>
@@ -1142,7 +1287,7 @@ function renderMaterials(){
 function renderMaterialGrid(){
   const q = ($('#matSearch')?.value||'').toLowerCase();
   const cat = $('#matCategoryFilter')?.value || '';
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('matStock','edit');
   const list = state.materials.filter(m=>{
     const matchQ = !q || m.name.toLowerCase().includes(q) || (m.category||'').toLowerCase().includes(q) || (m.item_code||'').toLowerCase().includes(q);
     const matchCat = !cat || m.category === cat;
@@ -1174,7 +1319,7 @@ function renderMaterialGrid(){
 
 function openMaterialModal(id){
   const record = id ? state.materials.find(m=>m.id===id) : null;
-  const canEdit = state.user.role !== 'employee';
+  const canEdit = hasPerm('matStock','edit');
   const itemCode = record ? record.item_code : generateNextItemCode();
   const categoryOptions = MATERIAL_CATEGORIES.slice();
   if(record?.category && !categoryOptions.includes(record.category)) categoryOptions.unshift(record.category);
@@ -1327,7 +1472,7 @@ function activeLoanOf(assetId){ return state.assetLoans.find(l=>l.asset_id===ass
 function repairDate(r){ return r.repair_date || String(r.completed_at || r.started_at || r.created_at).slice(0,10); }
 function isLoanOverdue(l){ return l.status==='ยืมอยู่' && l.due_date < todayStr(); }
 function isAssetLendable(a){ return a.status==='ใช้งานปกติ' && !activeLoanOf(a.id); }
-function scopedLoans(){ return state.user.role==='employee' ? state.assetLoans.filter(l=>l.borrower_id===state.user.id) : state.assetLoans; }
+function scopedLoans(){ return hasPerm('assetLoan','approve') ? state.assetLoans : state.assetLoans.filter(l=>l.borrower_id===state.user.id); }
 
 // ค่าเสื่อมราคาแบบเส้นตรง มูลค่าซาก 1 บาท คิดตามปีงบประมาณ (1 ต.ค. - 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา
 function assetDepreciation(a, asOf = new Date()){
@@ -1463,7 +1608,7 @@ function printAssetLedger(id){
 function openAssetDetail(id){
   const a = state.assets.find(x=>x.id===id);
   if(!a){ showToast('ไม่พบครุภัณฑ์ในระบบ (อาจถูกลบไปแล้ว)','error'); return; }
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('assets','edit');
   const loan = activeLoanOf(a.id);
   const resp = state.users.find(u=>u.id===a.responsible_user_id);
   const repairs = state.assetRepairs.filter(r=>r.asset_id===a.id && r.status!=='ยกเลิก').sort((x,y)=>repairDate(y).localeCompare(repairDate(x)));
@@ -1607,7 +1752,7 @@ function refreshAssetView(){
 // ทะเบียนครุภัณฑ์
 // ---------------------------------------------------------------------------
 function renderAssets(){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('assets','edit');
   $('#mainContent').innerHTML = `
     <div class="flex flex-wrap items-center gap-3 mb-2">
       <div class="relative w-full sm:w-72">
@@ -1648,7 +1793,7 @@ function assetFiltered(){
 }
 
 function renderAssetGrid(){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('assets','edit');
   const list = assetFiltered();
   $('#assetGrid').innerHTML = list.map(a=>{
     const loan = activeLoanOf(a.id);
@@ -1678,7 +1823,7 @@ function renderAssetGrid(){
 function openAssetModal(id){
   const record = state.assets.find(a=>a.id===id);
   if(!record) return;
-  const canEdit = state.user.role !== 'employee';
+  const canEdit = hasPerm('assets','edit');
   openModal('แก้ไขข้อมูลครุภัณฑ์', `
     <form id="assetForm" class="space-y-3">
       <div>
@@ -1995,7 +2140,7 @@ function openAssetReceiptDetail(id){
 // ซ่อมบำรุง
 // ---------------------------------------------------------------------------
 function renderAssetRepair(){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('assetRepair','edit');
   const list = state.assetRepairs.filter(r=>r.status!=='ยกเลิก');
   const total = list.reduce((sum,r)=>sum+Number(r.cost||0),0);
   const cards = [
@@ -2026,7 +2171,7 @@ function renderAssetRepair(){
 }
 
 function renderRepairTable(){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('assetRepair','edit');
   const q = ($('#repairSearch')?.value||'').toLowerCase();
   const list = state.assetRepairs.filter(r=>r.status!=='ยกเลิก')
     .slice().sort((x,y)=>repairDate(y).localeCompare(repairDate(x)) || new Date(y.created_at)-new Date(x.created_at))
@@ -2125,7 +2270,7 @@ function timelineStep(icon, color, title, sub){
 let loanStatusFilter = '';
 
 function renderAssetLoan(){
-  const isPriv = state.user.role !== 'employee';
+  const isPriv = hasPerm('assetLoan','approve');
   loanStatusFilter = '';
   const list = scopedLoans();
   const cards = [
@@ -2146,7 +2291,7 @@ function renderAssetLoan(){
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
         <input id="loanSearch" oninput="renderLoanTable()" placeholder="ค้นหาเลขที่/ครุภัณฑ์..." class="input-field pl-9">
       </div>
-      <button onclick="openLoanRequestModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>ขอยืมครุภัณฑ์</button>
+      ${hasPerm('assetLoan','edit')?`<button onclick="openLoanRequestModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>ขอยืมครุภัณฑ์</button>`:''}
     </div>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
       <th class="py-2 pr-3">เลขที่</th><th class="py-2 pr-3">ครุภัณฑ์</th>${isPriv?'<th class="py-2 pr-3">ผู้ยืม</th>':''}<th class="py-2 pr-3">กำหนดคืน</th><th class="py-2 pr-3">สถานะ</th><th class="py-2">จัดการ</th>
@@ -2159,7 +2304,7 @@ function renderAssetLoan(){
 function setLoanFilter(s){ loanStatusFilter = s; renderLoanTable(); }
 
 function renderLoanTable(){
-  const isPriv = state.user.role !== 'employee';
+  const isPriv = hasPerm('assetLoan','approve');
   const q = ($('#loanSearch')?.value||'').toLowerCase();
   $all('.loan-card').forEach(b=>{ const on = b.dataset.lfilter === loanStatusFilter; b.classList.toggle('ring-sky-300', on); b.classList.toggle('ring-transparent', !on); });
   let list = scopedLoans().slice().sort((a,b)=>new Date(b.created_at)-new Date(a.created_at));
@@ -2316,7 +2461,7 @@ function openLoanDetail(id){
 let receiveCart = [];
 
 function renderMatReceive(){
-  if(state.user.role === 'employee'){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); navigate('matStock'); return; }
+  if(!hasPerm('matReceive','edit')){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); navigate('matStock'); return; }
   receiveCart = [];
   $('#mainContent').innerHTML = `
     <div class="grid lg:grid-cols-3 gap-5 mb-5">
@@ -2343,7 +2488,7 @@ function renderMatReceive(){
     <div class="card">
       <div class="flex items-center justify-between mb-3">
         <h3 class="font-semibold text-slate-600">ประวัติการรับเข้าล่าสุด</h3>
-        ${state.user.role==='admin'?`<button onclick="exportCSV(state.stockTx.filter(t=>t.type==='รับเข้า').map(t=>({...t, material_name:getMaterialNameOnly(t.material_id)})),'stock_in.csv',['material_name','quantity','note','created_at'])" class="btn-secondary gap-2 !py-1.5 !px-3 text-xs"><i data-lucide="download" class="w-3.5 h-3.5"></i>รายงาน</button>`:''}
+        <button onclick="exportCSV(state.stockTx.filter(t=>t.type==='รับเข้า').map(t=>({...t, material_name:getMaterialNameOnly(t.material_id)})),'stock_in.csv',['material_name','quantity','note','created_at'])" class="btn-secondary gap-2 !py-1.5 !px-3 text-xs"><i data-lucide="download" class="w-3.5 h-3.5"></i>รายงาน</button>
       </div>
       <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
         <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">วัสดุ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">ผู้บันทึก</th><th class="py-2">หมายเหตุ</th>
@@ -2469,7 +2614,7 @@ function renderMatIssue(){
   $('#mainContent').innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
       <h3 class="font-semibold text-slate-600">ใบเบิกวัสดุล่าสุดของฉัน</h3>
-      <button onclick="openIssueCreateModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>
+      ${hasPerm('matIssue','edit')?`<button onclick="openIssueCreateModal()" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>`:''}
     </div>
     <p class="text-xs text-slate-400 mb-4">หน้านี้ใช้สำหรับเบิกวัสดุเท่านั้น · การอนุมัติ ยกเลิก และดูสถานะทำได้ที่เมนู "ติดตามสถานะการเบิก"</p>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
@@ -2500,7 +2645,7 @@ function renderIssueTable(){
 let trackStatusFilter = '';
 
 function renderMatTrack(){
-  const isPriv = state.user.role !== 'employee';
+  const isPriv = hasPerm('matTrack','approve');
   trackStatusFilter = '';
   const list = isPriv ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
   const cards = [
@@ -2522,7 +2667,7 @@ function renderMatTrack(){
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
         <input id="trackSearch" oninput="renderTrackTable()" placeholder="ค้นหาเลขที่ใบเบิก..." class="input-field pl-9">
       </div>
-      ${state.user.role==='admin'?`<button onclick="exportIssueRequestsCSV()" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+      ${isPriv?`<button onclick="exportIssueRequestsCSV()" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
     </div>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
       <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
@@ -2538,7 +2683,7 @@ function setTrackFilter(status){
 }
 
 function renderTrackTable(){
-  const isPriv = state.user.role !== 'employee';
+  const isPriv = hasPerm('matTrack','approve');
   const q = ($('#trackSearch')?.value||'').toLowerCase();
   $all('.track-card').forEach(b=>{
     const on = b.dataset.track === trackStatusFilter;
@@ -2954,7 +3099,7 @@ function renderMatCard(){
         <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
         <input id="cardSearch" oninput="renderMatCardTable()" placeholder="ค้นหาวัสดุ..." class="input-field pl-9">
       </div>
-      ${state.user.role==='admin'?`<button onclick="exportCSV(state.materials,'stock_balance.csv',['item_code','name','category','unit','quantity','min_quantity'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
+      ${hasPerm('matStock','edit')?`<button onclick="exportCSV(state.materials,'stock_balance.csv',['item_code','name','category','unit','quantity','min_quantity'])" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>รายงาน</button>`:''}
     </div>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
       <th class="py-2 pr-3">รหัส</th><th class="py-2 pr-3">ชื่อวัสดุ</th><th class="py-2 pr-3">หมวดหมู่</th><th class="py-2 pr-3">คงเหลือ</th><th class="py-2 pr-3">จุดสั่งซื้อขั้นต่ำ</th><th class="py-2">Stock Card</th>
@@ -3142,7 +3287,7 @@ function dateMonthKey(v){
 }
 
 function scopedIssueRequests(){
-  return state.user.role === 'employee' ? state.issueRequests.filter(r=>r.requester_id===state.user.id) : state.issueRequests;
+  return hasPerm('matTrack','approve') ? state.issueRequests : state.issueRequests.filter(r=>r.requester_id===state.user.id);
 }
 
 function reportMonthKeys(kind){
@@ -3343,6 +3488,7 @@ function daterangeDef(label){ return { type:'daterange', keyFrom:'from', keyTo:'
 function dateDef(key, label){ return { type:'date', key, label }; }
 
 function reportFilterDefs(kind){
+  const st = reportState[kind];
   const statusDef = (list) => ({ key:'status', label:'สถานะ', options:[['','ทั้งหมด'], ...list.map(x=>[x,x])] });
   if(kind === 'receive') return [daterangeDef()];
   if(kind === 'issue') return [daterangeDef(), statusDef(['รออนุมัติ','อนุมัติ','ไม่อนุมัติ'])];
@@ -3450,7 +3596,7 @@ let drugReportState = {
 };
 
 function renderDrugGroup(group){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm(DRUG_VIEW_KEY[group],'edit');
   const gk = drugGK(group);
   const tabs = [
     {key:'stock', label:'คลัง', icon:'box'},
@@ -3480,7 +3626,7 @@ function renderDrugTab(group){
 
 // ---------- คลัง ----------
 function renderDrugStock(group){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm(DRUG_VIEW_KEY[group],'edit');
   const cats = DRUG_CATEGORIES[group];
   $('#drugTabBody-'+drugGK(group)).innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -3505,7 +3651,7 @@ function renderDrugStock(group){
 function renderDrugStockGrid(group){
   const q = ($('#drugSearch')?.value||'').toLowerCase();
   const cat = $('#drugCategoryFilter')?.value || '';
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm(DRUG_VIEW_KEY[group],'edit');
   const list = drugItemsOf(group).filter(d=>{
     const matchQ = !q || d.name.toLowerCase().includes(q) || (d.category||'').toLowerCase().includes(q) || (d.item_code||'').toLowerCase().includes(q);
     const matchCat = !cat || d.category === cat;
@@ -3537,7 +3683,7 @@ function renderDrugStockGrid(group){
 
 function openDrugItemModal(group, id){
   const record = id ? state.drugItems.find(x=>x.id===id) : null;
-  const canEdit = state.user.role !== 'employee';
+  const canEdit = hasPerm(DRUG_VIEW_KEY[group],'edit');
   const itemCode = record ? record.item_code : nextSeqCodes(fyPrefix(DRUG_CODE_PREFIX[group]), drugItemsOf(group).map(x=>x.item_code))[0];
   const categoryOptions = DRUG_CATEGORIES[group].slice();
   if(record?.category && !categoryOptions.includes(record.category)) categoryOptions.unshift(record.category);
@@ -3641,7 +3787,7 @@ function deleteDrugItem(group, id){
 
 // ---------- รับเข้า ----------
 function renderDrugReceive(group){
-  if(state.user.role === 'employee'){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); drugSubView[group]='stock'; renderDrugGroup(group); return; }
+  if(!hasPerm(DRUG_VIEW_KEY[group],'edit')){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); drugSubView[group]='stock'; renderDrugGroup(group); return; }
   drugReceiveCart[group] = [];
   $('#drugTabBody-'+drugGK(group)).innerHTML = `
     <div class="grid lg:grid-cols-3 gap-5 mb-5">
@@ -3791,7 +3937,7 @@ function renderDrugIssueList(group){
   $('#drugTabBody-'+drugGK(group)).innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
       <h3 class="font-semibold text-slate-600">ใบเบิก${escapeHtml(group)}ล่าสุดของฉัน</h3>
-      <button onclick="openDrugIssueCreateModal('${group}')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>
+      ${hasPerm(DRUG_VIEW_KEY[group],'edit')?`<button onclick="openDrugIssueCreateModal('${group}')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>`:''}
     </div>
     <p class="text-xs text-slate-400 mb-4">หน้านี้ใช้สำหรับเบิกเท่านั้น · การอนุมัติ ยกเลิก และดูสถานะทำได้ที่แท็บ "ติดตามสถานะการเบิก"</p>
     <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
@@ -3933,7 +4079,7 @@ async function submitDrugIssueRequest(group){
 
 // ---------- ติดตามสถานะการเบิก ----------
 function renderDrugTrack(group){
-  const isPriv = state.user.role !== 'employee';
+  const isPriv = hasPerm(DRUG_VIEW_KEY[group],'approve');
   drugTrackFilter[group] = '';
   const list = isPriv ? drugRequestsOf(group) : drugRequestsOf(group).filter(r=>r.requester_id===state.user.id);
   const cards = [
@@ -3967,7 +4113,7 @@ function renderDrugTrack(group){
 function setDrugTrackFilter(group, status){ drugTrackFilter[group] = status; renderDrugTrackTable(group); }
 
 function renderDrugTrackTable(group){
-  const isPriv = state.user.role !== 'employee';
+  const isPriv = hasPerm(DRUG_VIEW_KEY[group],'approve');
   const q = ($('#drugTrackSearch')?.value||'').toLowerCase();
   $all('.drug-track-card').forEach(b=>{
     const on = b.dataset.dtrack === drugTrackFilter[group];
@@ -4521,7 +4667,7 @@ function refreshMedView(){
 
 // ---------- ทะเบียน ----------
 function renderMedEquip(){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('medEquip','edit');
   medStatusFilter = '';
   const list = state.medEquipment;
   const cnt = k => list.filter(e=>medEquipStatus(e)===k).length;
@@ -4556,7 +4702,7 @@ function renderMedEquip(){
 function setMedFilter(k){ medStatusFilter = k; renderMedEquipTable(); }
 
 function renderMedEquipTable(){
-  const canManage = state.user.role !== 'employee';
+  const canManage = hasPerm('medEquip','edit');
   const q = ($('#medSearch')?.value||'').toLowerCase();
   $all('.med-card').forEach(b=>{ const on = b.dataset.mfilter === medStatusFilter; b.classList.toggle('ring-sky-300', on); b.classList.toggle('ring-transparent', !on); });
   const list = state.medEquipment.slice().sort((a,b)=>String(a.equipment_code).localeCompare(String(b.equipment_code)))
@@ -4698,7 +4844,7 @@ function renderMedLoan(){
     <div class="grid lg:grid-cols-3 gap-5">
       <div class="card lg:col-span-1 h-fit">
         <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="hand-helping" class="w-5 h-5 text-violet-400"></i>บันทึกการยืมอุปกรณ์</h3>
-        ${available.length ? `<form id="medLoanForm" class="space-y-3">
+        ${!hasPerm('medLoan','edit') ? `<p class="text-sm text-slate-400 py-6 text-center">คุณไม่มีสิทธิ์บันทึกการยืม</p>` : available.length ? `<form id="medLoanForm" class="space-y-3">
           <div><label class="text-sm text-slate-500">อุปกรณ์ที่ให้ยืม *</label>
             <select id="ml_equipment" required class="input-field"><option value="">- เลือกอุปกรณ์ -</option>${available.map(e=>`<option value="${e.id}">${escapeHtml(e.equipment_code)} ${escapeHtml(e.name)}</option>`).join('')}</select></div>
           <div><label class="text-sm text-slate-500">ชื่อผู้ยืม *</label><input id="ml_name" required class="input-field"></div>
@@ -4770,7 +4916,7 @@ function renderMedReturnTables(){
   const pending = state.medLoans.filter(l=>l.status==='ยืมอยู่' && match(l)).sort((a,b)=>String(a.due_date||'9999').localeCompare(String(b.due_date||'9999')));
   const done = state.medLoans.filter(l=>l.status==='คืนแล้ว' && match(l)).sort((a,b)=>String(b.returned_at).localeCompare(String(a.returned_at)));
   $('#medPendCount').textContent = pending.length;
-  $('#medPending').innerHTML = medLoanTableHtml(pending, { withAction:true });
+  $('#medPending').innerHTML = medLoanTableHtml(pending, { withAction: hasPerm('medReturn','edit') });
   $('#medReturned').innerHTML = `<div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
     <th class="py-2 pr-3">เลขที่</th><th class="py-2 pr-3">อุปกรณ์</th><th class="py-2 pr-3">ผู้ยืม</th><th class="py-2 pr-3">วันที่ยืม</th><th class="py-2 pr-3">วันที่คืน</th><th class="py-2 pr-3">สภาพ</th><th class="py-2">หมายเหตุ</th>
   </tr></thead><tbody>${done.map(l=>`<tr class="border-b border-slate-50 hover:bg-slate-50/60">
@@ -4903,6 +5049,7 @@ function renderSettings(){
   `;
   lucide.createIcons();
   $('#orgForm').onsubmit = saveOrgSettings;
+  if(!hasPerm('settings','edit')){ $all('#orgForm input, #orgForm textarea').forEach(el=>el.disabled=true); $('#orgForm button[type=submit]')?.remove(); }
   checkDbConnection();
 }
 

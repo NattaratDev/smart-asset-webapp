@@ -13,6 +13,7 @@ create extension if not exists pgcrypto;
 -- ----------------------------------------------------------------------------
 -- 1) DROP (ถ้ามีของเดิม) - ลบตามลำดับ dependency
 -- ----------------------------------------------------------------------------
+drop table if exists public.user_permissions cascade;
 drop table if exists public.drug_stock_transactions cascade;
 drop table if exists public.drug_issue_items cascade;
 drop table if exists public.drug_issue_requests cascade;
@@ -482,6 +483,25 @@ create policy "drug_stock_tx_select_all" on public.drug_stock_transactions for s
 create policy "drug_stock_tx_insert_all" on public.drug_stock_transactions for insert with check (true);
 create policy "drug_stock_tx_update_all" on public.drug_stock_transactions for update using (true) with check (true);
 create policy "drug_stock_tx_delete_all" on public.drug_stock_transactions for delete using (true);
+
+-- ----------------------------------------------------------------------------
+-- user_permissions: สิทธิ์รายเมนูของแต่ละคน (ดู/แก้ไข/อนุมัติ) แยกอิสระต่อคน ไม่ผูกกับ role ตายตัว
+-- role ใน users ใช้เป็นแค่ค่าเริ่มต้นตอนสร้างพนักงานใหม่เท่านั้น
+-- ----------------------------------------------------------------------------
+create table public.user_permissions (
+  user_id  uuid not null references public.users(id) on delete cascade,
+  menu_key text not null,
+  level    text not null check (level in ('view','edit','approve')),
+  updated_at timestamptz not null default now(),
+  primary key (user_id, menu_key)
+);
+
+grant all on public.user_permissions to anon, authenticated;
+alter table public.user_permissions enable row level security;
+create policy "user_permissions_select_all" on public.user_permissions for select using (true);
+create policy "user_permissions_insert_all" on public.user_permissions for insert with check (true);
+create policy "user_permissions_update_all" on public.user_permissions for update using (true) with check (true);
+create policy "user_permissions_delete_all" on public.user_permissions for delete using (true);
 
 -- medical_equipment / medical_loans
 create policy "medical_equipment_select_all" on public.medical_equipment for select using (true);
