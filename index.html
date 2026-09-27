@@ -1082,7 +1082,7 @@ let formPerms = {};
 let permLockedKeys = [];
 
 function permMatrixRowsHtml(){
-  return PERM_CATALOG.map(g=>`
+  return '<div class="grid sm:grid-cols-2 gap-x-5">' + PERM_CATALOG.map(g=>`
     <div class="mb-2">
       <p class="text-[11px] font-semibold text-slate-400 mt-2 mb-1">${escapeHtml(g.group)}</p>
       ${g.items.map(it=>{
@@ -1096,7 +1096,7 @@ function permMatrixRowsHtml(){
           </div>
         </div>`;
       }).join('')}
-    </div>`).join('');
+    </div>`).join('') + '</div>';
 }
 
 function renderPermMatrixBody(){
@@ -1128,6 +1128,8 @@ function openUserModal(id){
   permLockedKeys.forEach(k=>{ formPerms[k] = 'edit'; });
   openModal(isEdit?'แก้ไขข้อมูลพนักงาน':'เพิ่มพนักงานใหม่', `
     <form id="userForm" class="space-y-3">
+    <div class="grid ${canEditRole?'lg:grid-cols-[1fr_1.3fr] lg:gap-8':''} gap-5">
+    <div class="space-y-4">
       <div>
         <label class="text-sm text-slate-500">รูปโปรไฟล์</label>
         <div class="flex items-center gap-3 mt-1">
@@ -1164,20 +1166,22 @@ function openUserModal(id){
           <label for="f_is_active" class="text-sm text-slate-500">เปิดใช้งานบัญชี</label>
         </div>` : ''}
       </div>
-      ${canEditRole?`<div class="border-t border-slate-100 pt-3 mt-1">
+    </div>
+    ${canEditRole?`<div class="border-t lg:border-t-0 border-slate-100 pt-4 lg:pt-0 lg:border-l lg:pl-8">
         <div class="flex items-center justify-between mb-2">
           <p class="text-sm font-medium text-slate-600">สิทธิ์การใช้งานรายเมนู</p>
           <button type="button" onclick="applyRoleDefaultsToForm()" class="text-xs text-sky-500 hover:underline">ใช้ค่าเริ่มต้นของบทบาทที่เลือก</button>
         </div>
-        <div id="permMatrixBody" class="max-h-64 overflow-y-auto pr-1">${permMatrixRowsHtml()}</div>
+        <div id="permMatrixBody" class="max-h-[30rem] overflow-y-auto pr-1">${permMatrixRowsHtml()}</div>
         ${permLockedKeys.length?'<p class="text-[11px] text-amber-500 mt-1">ล็อกสิทธิ์ "พนักงาน" และ "ตั้งค่าระบบ" ไว้ที่ระดับแก้ไข เพื่อป้องกันการล็อกตัวเองออกจากระบบ</p>':''}
       </div>`:''}
+    </div>
       <div class="flex justify-end gap-2 pt-3">
         <button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button>
         <button type="submit" class="btn-primary">บันทึก</button>
       </div>
     </form>
-  `);
+  `, canEditRole ? 'max-w-5xl' : 'max-w-lg');
   if(!canEditRole){ $('#f_role').disabled = true; }
   $('#userForm').onsubmit = e => submitUserForm(e, record);
 }
