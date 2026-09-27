@@ -241,7 +241,7 @@ Chart.defaults.font.family = 'Kanit';
 const SESSION_KEY = 'smartasset_session';
 let pendingAssetId = normalizeAssetId(new URLSearchParams(location.search).get('a'));
 function normalizeAssetId(v){ v = String(v||'').trim().toLowerCase(); return /^[0-9a-f]{32}$/.test(v) ? v.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5') : v; }   // มาจากการสแกน QR บนการ์ดครุภัณฑ์
-const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], assetReceipts: [], assetRepairs: [], assetLoans: [], medEquipment: [], medLoans: [], settings: {}, charts: {} };
+const state = { user: null, currentView: null, users: [], materials: [], assets: [], requests: [], issueRequests: [], stockTx: [], assetReceipts: [], assetRepairs: [], assetLoans: [], medEquipment: [], medLoans: [], drugItems: [], drugIssueRequests: [], drugStockTx: [], settings: {}, charts: {} };
 
 const MENU_ITEMS = {
   dashboard:   { label: 'แดชบอร์ด', icon: 'layout-dashboard' },
@@ -261,6 +261,8 @@ const MENU_ITEMS = {
   repAssetDep: { label: 'รายงานค่าเสื่อมราคา', short: 'ค่าเสื่อมราคา', icon: 'trending-down' },
   repAssetRepair: { label: 'รายงานการซ่อมบำรุง', short: 'รายงานซ่อม', icon: 'wrench' },
   repAssetLoan: { label: 'รายงานการยืม-คืน', short: 'รายงานยืม-คืน', icon: 'repeat' },
+  drugMed:     { label: 'เวชภัณฑ์', icon: 'pill' },
+  drugNonMed:  { label: 'เวชภัณฑ์มิใช่ยา', icon: 'syringe' },
   medEquip:    { label: 'ทะเบียนอุปกรณ์', icon: 'stethoscope' },
   medLoan:     { label: 'ยืมอุปกรณ์', icon: 'hand-helping' },
   medReturn:   { label: 'คืนอุปกรณ์', icon: 'undo-2' },
@@ -277,6 +279,7 @@ const ROLE_MENU = {
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetDep'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
+    { group:'เวชภัณฑ์', icon:'pill', children:[{key:'drugMed'},{key:'drugNonMed'}] },
     { group:'ยืม-คืนอุปกรณ์การแพทย์', icon:'stethoscope', children:[{key:'medEquip'},{key:'medLoan'},{key:'medReturn'}] },
     { key:'employees' },
     { key:'profile' },
@@ -286,6 +289,7 @@ const ROLE_MENU = {
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matReceive'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repReceive'},{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetReceive'},{key:'assetRepair'},{key:'assetLoan'},{group:'รายงาน',icon:'file-text',children:[{key:'repAssetReg'},{key:'repAssetDep'},{key:'repAssetRepair'},{key:'repAssetLoan'}]}] },
+    { group:'เวชภัณฑ์', icon:'pill', children:[{key:'drugMed'},{key:'drugNonMed'}] },
     { group:'ยืม-คืนอุปกรณ์การแพทย์', icon:'stethoscope', children:[{key:'medEquip'},{key:'medLoan'},{key:'medReturn'}] },
     { key:'profile' },
   ],
@@ -293,6 +297,7 @@ const ROLE_MENU = {
     { key:'dashboard' },
     { group:'วัสดุ', icon:'package', children:[{key:'matStock'},{key:'matIssue'},{key:'matTrack'},{group:'รายงาน',icon:'file-text',children:[{key:'repIssue'},{key:'repBalance'},{key:'matCard'}]}] },
     { group:'ครุภัณฑ์', icon:'monitor', children:[{key:'assets'},{key:'assetRepair'},{key:'assetLoan'}] },
+    { group:'เวชภัณฑ์', icon:'pill', children:[{key:'drugMed'},{key:'drugNonMed'}] },
     { group:'ยืม-คืนอุปกรณ์การแพทย์', icon:'stethoscope', children:[{key:'medEquip'}] },
     { key:'profile' },
   ],
@@ -646,14 +651,16 @@ async function fetchAll(){
     const results = await Promise.all([
       q('users'), q('materials'), q('fixed_assets'), q('material_stock_transactions'),
       dbClient.from('material_issue_requests').select('*, items:material_issue_items(id, material_id, quantity, approved_quantity, material:materials(name,unit,item_code))').order('created_at',{ascending:false}),
-      q('asset_receipts'), q('asset_repairs'), q('asset_loans'), q('medical_equipment'), q('medical_loans'),
+      q('asset_receipts'), q('asset_repairs'), q('asset_loans'), q('medical_equipment'), q('medical_loans'), q('drug_items'), q('drug_stock_transactions'),
+      dbClient.from('drug_issue_requests').select('*, items:drug_issue_items(id, item_id, quantity, approved_quantity, item:drug_items(name,unit,item_code))').order('created_at',{ascending:false}),
     ]);
     const failed = results.find(r=>r.error);
     if(failed) throw failed.error;
-    const [users, materials, assets, stockTx, issueRequests, receipts, repairs, loans, medEquipment, medLoans] = results.map(r=>r.data||[]);
+    const [users, materials, assets, stockTx, issueRequests, receipts, repairs, loans, medEquipment, medLoans, drugItems, drugStockTx, drugIssueRequests] = results.map(r=>r.data||[]);
     state.users = users; state.materials = materials; state.assets = assets; state.stockTx = stockTx; state.issueRequests = issueRequests;
     state.assetReceipts = receipts; state.assetRepairs = repairs; state.assetLoans = loans;
     state.medEquipment = medEquipment; state.medLoans = medLoans;
+    state.drugItems = drugItems; state.drugStockTx = drugStockTx; state.drugIssueRequests = drugIssueRequests;
   }catch(err){ showToast('โหลดข้อมูลล้มเหลว: '+err.message,'error'); }
   finally{ hideLoader(); }
 }
@@ -826,7 +833,7 @@ function navigate(view){
   closeAdminPanel();
   closeUserMenu();
   $('#pageTitle').textContent = item ? item.label : '';
-  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, assetReceive: renderAssetReceive, assetRepair: renderAssetRepair, assetLoan: renderAssetLoan, medEquip: renderMedEquip, medLoan: renderMedLoan, medReturn: renderMedReturn, repAssetReg: ()=>renderReport('assetReg'), repAssetDep: ()=>renderReport('assetDep'), repAssetRepair: ()=>renderReport('assetRepair'), repAssetLoan: ()=>renderReport('assetLoan'), profile: renderProfile, settings: renderSettings };
+  const renderers = { dashboard: renderDashboard, employees: renderEmployees, matStock: renderMaterials, matReceive: renderMatReceive, matIssue: renderMatIssue, matTrack: renderMatTrack, matCard: renderMatCard, repReceive: ()=>renderReport('receive'), repIssue: ()=>renderReport('issue'), repBalance: ()=>renderReport('balance'), assets: renderAssets, assetReceive: renderAssetReceive, assetRepair: renderAssetRepair, assetLoan: renderAssetLoan, drugMed: ()=>renderDrugGroup('เวชภัณฑ์'), drugNonMed: ()=>renderDrugGroup('เวชภัณฑ์มิใช่ยา'), medEquip: renderMedEquip, medLoan: renderMedLoan, medReturn: renderMedReturn, repAssetReg: ()=>renderReport('assetReg'), repAssetDep: ()=>renderReport('assetDep'), repAssetRepair: ()=>renderReport('assetRepair'), repAssetLoan: ()=>renderReport('assetLoan'), profile: renderProfile, settings: renderSettings };
   renderers[view] && renderers[view]();
   updateActiveNav();
   openMenuAncestors(view);
@@ -3396,6 +3403,1073 @@ function exportReportCSV(kind){
   const labels = cfg.headers.map(h=>h.label);
   const rows = cfg.rows.map(r=>Object.fromEntries(labels.map((l,i)=>[l, r[i]])));
   exportCSV(rows, `${kind}_report.csv`, labels);
+}
+
+// ---------------------------------------------------------------------------
+// เวชภัณฑ์ / เวชภัณฑ์มิใช่ยา - เต็มรูปแบบเหมือนโมดูลวัสดุ (แท็บ: คลัง/รับเข้า/เบิก/ติดตามสถานะการเบิก/Stock Card/รายงาน)
+// ---------------------------------------------------------------------------
+const DRUG_GROUPS = ['เวชภัณฑ์','เวชภัณฑ์มิใช่ยา'];
+const DRUG_CATEGORIES = {
+  'เวชภัณฑ์': ['ยาเม็ด/แคปซูล','ยาน้ำ/ยาน้ำเชื่อม','ยาฉีด','ยาใช้ภายนอก/ยาทา','ยาหยอด/ยาพ่น','เวชภัณฑ์ยาอื่นๆ'],
+  'เวชภัณฑ์มิใช่ยา': ['เวชภัณฑ์ทางการแพทย์ทั่วไป','วัสดุการแพทย์ใช้ครั้งเดียว','วัสดุทันตกรรม','วัสดุชันสูตร/ห้องปฏิบัติการ','น้ำยา/สารเคมีทางการแพทย์','เวชภัณฑ์มิใช่ยาอื่นๆ'],
+};
+const DRUG_CODE_PREFIX = { 'เวชภัณฑ์':'DRG', 'เวชภัณฑ์มิใช่ยา':'NDG' };
+const DRUG_ISSUE_PREFIX = { 'เวชภัณฑ์':'DWD', 'เวชภัณฑ์มิใช่ยา':'NWD' };
+const DRUG_VIEW_KEY = { 'เวชภัณฑ์':'drugMed', 'เวชภัณฑ์มิใช่ยา':'drugNonMed' };
+function drugGK(group){ return group==='เวชภัณฑ์' ? 'med' : 'nmed'; }
+function drugItemsOf(group){ return state.drugItems.filter(x=>x.drug_group===group); }
+function drugRequestsOf(group){ return state.drugIssueRequests.filter(r=>r.drug_group===group); }
+function getDrugNameOnly(id){ const d = state.drugItems.find(x=>x.id===id); return d ? d.name : '-'; }
+
+let drugSubView = { 'เวชภัณฑ์':'stock', 'เวชภัณฑ์มิใช่ยา':'stock' };
+let drugReceiveCart = { 'เวชภัณฑ์':[], 'เวชภัณฑ์มิใช่ยา':[] };
+let drugIssueCart = [];
+let drugTrackFilter = { 'เวชภัณฑ์':'', 'เวชภัณฑ์มิใช่ยา':'' };
+let drugReportState = {
+  'เวชภัณฑ์': { kind:'receive', month:'', status:'', category:'' },
+  'เวชภัณฑ์มิใช่ยา': { kind:'receive', month:'', status:'', category:'' },
+};
+
+function renderDrugGroup(group){
+  const canManage = state.user.role !== 'employee';
+  const gk = drugGK(group);
+  const tabs = [
+    {key:'stock', label:'คลัง', icon:'box'},
+    ...(canManage ? [{key:'receive', label:'รับเข้า', icon:'package-plus'}] : []),
+    {key:'issue', label:'เบิก', icon:'package-minus'},
+    {key:'track', label:'ติดตามสถานะการเบิก', icon:'list-checks'},
+    {key:'card', label:'Stock Card', icon:'scroll-text'},
+    {key:'report', label:'รายงาน', icon:'file-text'},
+  ];
+  if(!tabs.some(t=>t.key===drugSubView[group])) drugSubView[group] = 'stock';
+  $('#mainContent').innerHTML = `
+    <div class="mb-4 flex gap-1.5 overflow-x-auto pb-1">
+      ${tabs.map(t=>`<button onclick="setDrugSubView('${group}','${t.key}')" class="shrink-0 px-3.5 py-2 rounded-xl text-sm font-medium flex items-center gap-1.5 transition ${drugSubView[group]===t.key?'bg-sky-100 text-sky-600':'bg-white text-slate-500 hover:bg-slate-50'}"><i data-lucide="${t.icon}" class="w-3.5 h-3.5"></i>${t.label}</button>`).join('')}
+    </div>
+    <div id="drugTabBody-${gk}"></div>
+  `;
+  lucide.createIcons();
+  renderDrugTab(group);
+}
+
+function setDrugSubView(group, key){ drugSubView[group] = key; renderDrugGroup(group); }
+
+function renderDrugTab(group){
+  const map = { stock:renderDrugStock, receive:renderDrugReceive, issue:renderDrugIssueList, track:renderDrugTrack, card:renderDrugCard, report:renderDrugReportTab };
+  (map[drugSubView[group]] || renderDrugStock)(group);
+}
+
+// ---------- คลัง ----------
+function renderDrugStock(group){
+  const canManage = state.user.role !== 'employee';
+  const cats = DRUG_CATEGORIES[group];
+  $('#drugTabBody-'+drugGK(group)).innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex flex-wrap gap-2 flex-1">
+        <div class="relative w-full sm:w-64">
+          <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+          <input id="drugSearch" oninput="renderDrugStockGrid('${group}')" placeholder="ค้นหา${escapeHtml(group)}..." class="input-field pl-9">
+        </div>
+        <select id="drugCategoryFilter" onchange="renderDrugStockGrid('${group}')" class="input-field w-full sm:w-56">
+          <option value="">ทุกหมวดหมู่</option>
+          ${cats.map(c=>`<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
+        </select>
+      </div>
+      ${canManage?`<button onclick="openDrugItemModal('${group}')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่ม${escapeHtml(group)}</button>`:''}
+    </div>
+    <div id="drugGrid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3"></div>
+  `;
+  lucide.createIcons();
+  renderDrugStockGrid(group);
+}
+
+function renderDrugStockGrid(group){
+  const q = ($('#drugSearch')?.value||'').toLowerCase();
+  const cat = $('#drugCategoryFilter')?.value || '';
+  const canManage = state.user.role !== 'employee';
+  const list = drugItemsOf(group).filter(d=>{
+    const matchQ = !q || d.name.toLowerCase().includes(q) || (d.category||'').toLowerCase().includes(q) || (d.item_code||'').toLowerCase().includes(q);
+    const matchCat = !cat || d.category === cat;
+    return matchQ && matchCat;
+  });
+  $('#drugGrid').innerHTML = list.map(d=>{
+    const low = Number(d.quantity) <= Number(d.min_quantity);
+    return `<div class="card !p-3 ${d.is_active===false?'opacity-60':''}">
+      <div class="flex items-center gap-2 mb-2">
+        <div class="w-10 h-10 rounded-xl overflow-hidden bg-slate-100 flex items-center justify-center shrink-0">${d.image_url?`<img src="${escapeHtml(d.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="pill" class="w-4 h-4 text-slate-300"></i>`}</div>
+        <div class="min-w-0 flex-1">
+          <p class="text-[10px] text-slate-400 truncate">${escapeHtml(d.item_code||'-')}</p>
+          <p class="text-sm font-medium text-slate-700 truncate" title="${escapeHtml(d.name)}">${escapeHtml(d.name)}</p>
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-400 truncate mb-1.5">${escapeHtml(d.category||'ไม่ระบุหมวดหมู่')}</p>
+      <div class="flex items-center gap-1 flex-wrap mb-2">
+        <span class="badge !px-2 !py-0.5 text-[11px] ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${d.quantity} ${escapeHtml(d.unit)}${low?' (ใกล้หมด)':''}</span>
+        ${d.is_active===false?'<span class="badge !px-2 !py-0.5 text-[10px] bg-slate-200 text-slate-500">ปิดใช้งาน</span>':''}
+      </div>
+      ${canManage?`<div class="flex gap-1.5">
+        <button onclick="openDrugItemModal('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-sky-50 text-sky-500 flex items-center justify-center"><i data-lucide="pencil" class="w-3.5 h-3.5"></i></button>
+        <button onclick="deleteDrugItem('${group}','${d.id}')" class="flex-1 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i></button>
+      </div>`:''}
+    </div>`;
+  }).join('') || `<p class="col-span-full text-center text-slate-300 py-10">ไม่พบข้อมูล${escapeHtml(group)}</p>`;
+  lucide.createIcons();
+}
+
+function openDrugItemModal(group, id){
+  const record = id ? state.drugItems.find(x=>x.id===id) : null;
+  const canEdit = state.user.role !== 'employee';
+  const itemCode = record ? record.item_code : nextSeqCodes(fyPrefix(DRUG_CODE_PREFIX[group]), drugItemsOf(group).map(x=>x.item_code))[0];
+  const categoryOptions = DRUG_CATEGORIES[group].slice();
+  if(record?.category && !categoryOptions.includes(record.category)) categoryOptions.unshift(record.category);
+  openModal(record?`แก้ไขข้อมูล${escapeHtml(group)}`:`เพิ่ม${escapeHtml(group)}ใหม่`, `
+    <form id="drugItemForm" class="space-y-3">
+      <div>
+        <label class="text-sm text-slate-500">รูปภาพ</label>
+        <div class="flex items-center gap-3 mt-1">
+          <div id="drugImgPreview" class="w-20 h-20 rounded-2xl overflow-hidden bg-slate-100 flex items-center justify-center">${record?.image_url?`<img src="${escapeHtml(record.image_url)}" onerror="imageFallback(this)" class="w-full h-full object-cover">`:`<i data-lucide="image" class="w-7 h-7 text-slate-300"></i>`}</div>
+          <input type="file" id="drugImageFile" accept="image/*" class="text-xs min-w-0" onchange="previewFile(this,'drugImgPreview')">
+        </div>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="text-sm text-slate-500">รหัส (สร้างอัตโนมัติ)</label><input id="f_item_code" value="${escapeHtml(itemCode)}" readonly class="input-field opacity-70 cursor-not-allowed"></div>
+        <div><label class="text-sm text-slate-500">ชื่อ${escapeHtml(group)} *</label><input id="f_name" required value="${escapeHtml(record?.name||'')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">หมวดหมู่</label>
+          <select id="f_category" class="input-field">${categoryOptions.map(c=>`<option value="${escapeHtml(c)}" ${record?.category===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select>
+        </div>
+        <div><label class="text-sm text-slate-500">หน่วยนับ</label><input id="f_unit" value="${escapeHtml(record?.unit||'ชิ้น')}" class="input-field"></div>
+        <div><label class="text-sm text-slate-500">จำนวนคงเหลือ</label><input id="f_quantity" type="number" step="0.01" value="${record?.quantity??0}" class="input-field" ${record?'readonly':''}></div>
+        <div><label class="text-sm text-slate-500">จุดสั่งซื้อขั้นต่ำ</label><input id="f_min_quantity" type="number" step="0.01" value="${record?.min_quantity??0}" class="input-field"></div>
+      </div>
+      <div><label class="text-sm text-slate-500">รายละเอียด</label><textarea id="f_description" rows="2" class="input-field">${escapeHtml(record?.description||'')}</textarea></div>
+      ${record?`<label class="flex items-center gap-2 text-sm text-slate-500"><input type="checkbox" id="f_is_active" ${record?.is_active!==false?'checked':''} class="w-4 h-4 rounded">เปิดใช้งานรายการนี้</label>`:''}
+      ${record?`<p class="text-xs text-slate-400">หมายเหตุ: ปรับจำนวนคงเหลือผ่านแท็บ "รับเข้า" หรือ "เบิก" เพื่อให้ Stock Card ถูกต้อง</p>`:''}
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="submit" class="btn-primary">บันทึก</button></div>
+    </form>
+  `);
+  if(!canEdit){ $all('#drugItemForm input, #drugItemForm textarea, #drugItemForm select').forEach(el=>el.disabled=true); }
+  $('#drugItemForm').onsubmit = e => submitDrugItemForm(e, group, record);
+}
+
+async function submitDrugItemForm(e, group, record){
+  e.preventDefault();
+  showLoader();
+  try{
+    const payload = {
+      name: $('#f_name').value.trim(),
+      category: $('#f_category').value,
+      unit: $('#f_unit').value.trim() || 'ชิ้น',
+      min_quantity: Number($('#f_min_quantity').value) || 0,
+      description: $('#f_description').value.trim() || null,
+    };
+    if(!record){
+      payload.item_code = $('#f_item_code').value;
+      payload.quantity = Number($('#f_quantity').value) || 0;
+      payload.drug_group = group;
+    }
+    const file = $('#drugImageFile').files[0];
+    if(file) payload.image_url = await uploadImage(file, 'drug');
+    if(record){
+      payload.is_active = $('#f_is_active').checked;
+      const { data, error } = await dbClient.from('drug_items').update(payload).eq('id', record.id).select().single();
+      if(error) throw error;
+      Object.assign(record, data);
+    } else {
+      payload.created_by = state.user.id;
+      const { data, error } = await dbClient.from('drug_items').insert(payload).select().single();
+      if(error) throw error;
+      state.drugItems.unshift(data);
+      if(data.quantity > 0){
+        const { data: tx } = await dbClient.from('drug_stock_transactions').insert({
+          item_id: data.id, type:'รับเข้า', quantity: data.quantity, note:'ยอดตั้งต้น', performed_by: state.user.id
+        }).select().single();
+        if(tx) state.drugStockTx.unshift(tx);
+      }
+    }
+    closeModal(); renderDrugStock(group); showToast('บันทึกสำเร็จ','success');
+  }catch(err){ showToast('บันทึกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+function deleteDrugItem(group, id){
+  const item = state.drugItems.find(x=>x.id===id);
+  if(!item) return;
+  if(Number(item.quantity) > 0){
+    confirmAction(`ไม่สามารถลบรายการนี้ได้เนื่องจากยังมีคงเหลือ ${item.quantity} ${item.unit} ต้องการปิดใช้งานแทนหรือไม่?`, async ()=>{
+      showLoader();
+      try{
+        const { data, error } = await dbClient.from('drug_items').update({is_active:false}).eq('id', id).select().single();
+        if(error) throw error;
+        Object.assign(item, data);
+        renderDrugStockGrid(group);
+        showToast('ปิดใช้งานสำเร็จ','success');
+      }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
+      finally{ hideLoader(); }
+    });
+    return;
+  }
+  confirmAction('ยืนยันการลบรายการนี้ใช่หรือไม่?', async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('drug_items').delete().eq('id', id);
+      if(error) throw error;
+      state.drugItems = state.drugItems.filter(x=>x.id!==id);
+      renderDrugStock(group); showToast('ลบสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+// ---------- รับเข้า ----------
+function renderDrugReceive(group){
+  if(state.user.role === 'employee'){ showToast('คุณไม่มีสิทธิ์เข้าถึงหน้านี้','error'); drugSubView[group]='stock'; renderDrugGroup(group); return; }
+  drugReceiveCart[group] = [];
+  $('#drugTabBody-'+drugGK(group)).innerHTML = `
+    <div class="grid lg:grid-cols-3 gap-5 mb-5">
+      <div class="card lg:col-span-1 h-fit">
+        <h3 class="font-semibold text-slate-600 mb-3 flex items-center gap-2"><i data-lucide="package-plus" class="w-5 h-5 text-emerald-400"></i>เพิ่มรายการรับเข้า</h3>
+        <form id="drugReceiveItemForm" class="space-y-3">
+          <div><label class="text-sm text-slate-500">รายการ</label>
+            <select id="drc_item_id" class="input-field" required>
+              ${drugItemsOf(group).filter(d=>d.is_active!==false).map(d=>`<option value="${d.id}">${escapeHtml(d.name)} (คงเหลือ ${d.quantity} ${escapeHtml(d.unit)})</option>`).join('')}
+            </select>
+          </div>
+          <div><label class="text-sm text-slate-500">จำนวนที่รับเข้า</label><input id="drc_quantity" type="number" min="0.01" step="0.01" required class="input-field"></div>
+          <div><label class="text-sm text-slate-500">หมายเหตุเฉพาะรายการ (ถ้ามี)</label><input id="drc_item_note" class="input-field"></div>
+          <button type="submit" class="btn-secondary w-full justify-center gap-2"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มลงตะกร้า</button>
+        </form>
+      </div>
+      <div class="card lg:col-span-2">
+        <h3 class="font-semibold text-slate-600 mb-3">ตะกร้ารายการรับเข้า (<span id="drcCount">0</span> รายการ)</h3>
+        <div id="drcCartBody" class="space-y-2 mb-4 max-h-64 overflow-y-auto"></div>
+        <div class="mb-3"><label class="text-sm text-slate-500">หมายเหตุ/เลขที่เอกสารรวม (ใช้กับทุกรายการในตะกร้า)</label><textarea id="drc_batch_note" rows="2" class="input-field" placeholder="เช่น เลขที่ใบส่งของ, ชื่อผู้จำหน่าย"></textarea></div>
+        <button id="drcConfirmBtn" onclick="openDrugReceiveConfirmModal('${group}')" disabled class="btn-primary w-full justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"><i data-lucide="check-circle" class="w-4 h-4"></i>ยืนยันการรับเข้าทั้งหมด</button>
+      </div>
+    </div>
+    <div class="card">
+      <h3 class="font-semibold text-slate-600 mb-3">ประวัติการรับเข้าล่าสุด</h3>
+      <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+        <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">จำนวน</th><th class="py-2 pr-3">ผู้บันทึก</th><th class="py-2">หมายเหตุ</th>
+      </tr></thead><tbody id="drcHistoryBody"></tbody></table></div>
+    </div>
+  `;
+  lucide.createIcons();
+  renderDrugReceiveCart(group);
+  renderDrugReceiveHistory(group);
+  $('#drugReceiveItemForm').onsubmit = e => addToDrugReceiveCart(e, group);
+}
+
+function addToDrugReceiveCart(e, group){
+  e.preventDefault();
+  const itemId = $('#drc_item_id').value;
+  const qty = Number($('#drc_quantity').value);
+  const note = $('#drc_item_note').value.trim() || null;
+  if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
+  const item = state.drugItems.find(x=>x.id===itemId);
+  if(!item) return;
+  drugReceiveCart[group].push({ tempId: crypto.randomUUID(), item_id: itemId, item_name: item.name, unit: item.unit, quantity: qty, note });
+  $('#drugReceiveItemForm').reset();
+  renderDrugReceiveCart(group);
+  showToast('เพิ่มลงตะกร้าแล้ว','info');
+}
+
+function removeFromDrugReceiveCart(group, tempId){
+  drugReceiveCart[group] = drugReceiveCart[group].filter(c=>c.tempId !== tempId);
+  renderDrugReceiveCart(group);
+}
+
+function renderDrugReceiveCart(group){
+  const cart = drugReceiveCart[group];
+  $('#drcCount').textContent = cart.length;
+  $('#drcCartBody').innerHTML = cart.map(c=>`
+    <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-slate-700 truncate">${escapeHtml(c.item_name)}</p>
+        <p class="text-xs text-slate-400">${c.note?escapeHtml(c.note)+' · ':''}จำนวน <span class="text-emerald-600 font-medium">+${c.quantity}</span> ${escapeHtml(c.unit)}</p>
+      </div>
+      <button onclick="removeFromDrugReceiveCart('${group}','${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+    </div>`).join('') || `<p class="text-center text-slate-300 py-8 text-sm">ยังไม่มีรายการในตะกร้า เพิ่มรายการจากฟอร์มด้านซ้ายก่อนยืนยัน</p>`;
+  $('#drcConfirmBtn').disabled = cart.length === 0;
+  lucide.createIcons();
+}
+
+function openDrugReceiveConfirmModal(group){
+  const cart = drugReceiveCart[group];
+  if(cart.length === 0) return;
+  const batchNote = $('#drc_batch_note').value.trim();
+  openModal(`ยืนยันการรับเข้า${escapeHtml(group)}`, `
+    <p class="text-sm text-slate-500 mb-3">กรุณาตรวจสอบรายการให้ถูกต้องก่อนยืนยัน (รวม ${cart.length} รายการ)</p>
+    <div class="max-h-72 overflow-y-auto space-y-2 mb-4">
+      ${cart.map(c=>`
+        <div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm">
+          <div class="min-w-0">
+            <p class="text-slate-700 truncate">${escapeHtml(c.item_name)}</p>
+            ${c.note?`<p class="text-xs text-slate-400 truncate">${escapeHtml(c.note)}</p>`:''}
+          </div>
+          <span class="font-medium text-emerald-600 shrink-0">+${c.quantity} ${escapeHtml(c.unit)}</span>
+        </div>`).join('')}
+    </div>
+    ${batchNote?`<p class="text-xs text-slate-400 mb-4">หมายเหตุรวม: ${escapeHtml(batchNote)}</p>`:''}
+    <div class="flex justify-end gap-2">
+      <button type="button" onclick="closeModal()" class="btn-secondary">ย้อนกลับแก้ไข</button>
+      <button type="button" onclick="submitDrugReceiveBatch('${group}')" class="btn-primary">ยืนยันการรับเข้า</button>
+    </div>
+  `);
+}
+
+async function submitDrugReceiveBatch(group){
+  const cart = drugReceiveCart[group];
+  if(!cart || cart.length === 0){ closeModal(); return; }
+  const batchNote = $('#drc_batch_note')?.value.trim() || null;
+  closeModal();
+  showLoader();
+  const items = [...cart];
+  let doneCount = 0;
+  let failedItemName = null;
+  for(const it of items){
+    try{
+      const note = [batchNote, it.note].filter(Boolean).join(' — ') || null;
+      const { data: tx, error: e1 } = await dbClient.from('drug_stock_transactions').insert({
+        item_id: it.item_id, type:'รับเข้า', quantity: it.quantity, note, performed_by: state.user.id
+      }).select().single();
+      if(e1) throw e1;
+      state.drugStockTx.unshift(tx);
+      const item = state.drugItems.find(x=>x.id===it.item_id);
+      const newQty = Number(item.quantity) + Number(it.quantity);
+      const { data: updated, error: e2 } = await dbClient.from('drug_items').update({quantity:newQty}).eq('id', it.item_id).select().single();
+      if(e2) throw e2;
+      Object.assign(item, updated);
+      doneCount++;
+      drugReceiveCart[group] = drugReceiveCart[group].filter(c=>c.tempId !== it.tempId);
+    }catch(err){ failedItemName = it.item_name; break; }
+  }
+  hideLoader();
+  renderDrugReceiveCart(group);
+  renderDrugReceiveHistory(group);
+  if(failedItemName){
+    showToast(`บันทึกสำเร็จ ${doneCount} รายการ แต่ล้มเหลวที่ "${failedItemName}" กรุณาลองใหม่`,'error');
+  } else {
+    if($('#drc_batch_note')) $('#drc_batch_note').value = '';
+    showToast(`บันทึกรับเข้าสำเร็จ ${doneCount} รายการ`,'success');
+  }
+}
+
+function renderDrugReceiveHistory(group){
+  const ids = new Set(drugItemsOf(group).map(x=>x.id));
+  const rows = state.drugStockTx.filter(t=>t.type==='รับเข้า' && ids.has(t.item_id)).slice(0,15);
+  $('#drcHistoryBody').innerHTML = rows.map(t=>`
+    <tr class="border-b border-slate-50">
+      <td class="py-2 pr-3 text-slate-400">${formatDate(t.created_at)}</td>
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(getDrugNameOnly(t.item_id))}</td>
+      <td class="py-2 pr-3 text-emerald-600 font-medium">+${t.quantity}</td>
+      <td class="py-2 pr-3">${escapeHtml(getUserName(t.performed_by))}</td>
+      <td class="py-2 text-slate-400">${escapeHtml(t.note||'-')}</td>
+    </tr>`).join('') || `<tr><td colspan="5" class="py-6 text-center text-slate-300">ยังไม่มีประวัติการรับเข้า</td></tr>`;
+}
+
+// ---------- เบิก ----------
+function renderDrugIssueList(group){
+  $('#drugTabBody-'+drugGK(group)).innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+      <h3 class="font-semibold text-slate-600">ใบเบิก${escapeHtml(group)}ล่าสุดของฉัน</h3>
+      <button onclick="openDrugIssueCreateModal('${group}')" class="btn-primary gap-2"><i data-lucide="plus" class="w-4 h-4"></i>สร้างใบเบิกใหม่</button>
+    </div>
+    <p class="text-xs text-slate-400 mb-4">หน้านี้ใช้สำหรับเบิกเท่านั้น · การอนุมัติ ยกเลิก และดูสถานะทำได้ที่แท็บ "ติดตามสถานะการเบิก"</p>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">เลขที่ใบเบิก</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2">วันที่</th>
+    </tr></thead><tbody id="drugIssueTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderDrugIssueTable(group);
+}
+
+function renderDrugIssueTable(group){
+  const list = drugRequestsOf(group).filter(r=>r.requester_id===state.user.id).slice(0,5);
+  $('#drugIssueTableBody').innerHTML = list.map(r=>{
+    const items = r.items||[];
+    const summary = items.map(it=>`${it.item?.name||'-'} x${it.quantity}`).join(', ');
+    return `<tr class="border-b border-slate-50">
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.issue_code)}</td>
+      <td class="py-2 pr-3 max-w-xs truncate" title="${escapeHtml(summary)}">${items.length} รายการ: ${escapeHtml(summary)}</td>
+      <td class="py-2 pr-3">${statusBadge(r.status)}</td>
+      <td class="py-2 text-slate-400">${formatDate(r.created_at)}</td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="4" class="py-8 text-center text-slate-300">ยังไม่มีใบเบิก กด "สร้างใบเบิกใหม่" เพื่อเริ่มเบิก${escapeHtml(group)}</td></tr>`;
+}
+
+function drugIssueCartQty(itemId){ return drugIssueCart.filter(c=>c.item_id===itemId).reduce((s,c)=>s+Number(c.quantity),0); }
+
+function updateDrugIssueHint(){
+  const sel = $('#diq_item_id');
+  const hint = $('#diq_hint');
+  if(!sel || !hint) return;
+  const item = state.drugItems.find(x=>x.id===sel.value);
+  if(!item){ hint.textContent=''; return; }
+  const inCart = drugIssueCartQty(item.id);
+  const available = Math.max(0, Number(item.quantity) - inCart);
+  hint.innerHTML = available > 0
+    ? `เบิกได้สูงสุด <b class="text-slate-600">${available}</b> ${escapeHtml(item.unit)} (คงเหลือ ${item.quantity}${inCart?`, อยู่ในใบเบิกนี้แล้ว ${inCart}`:''})`
+    : `<span class="text-rose-500">ไม่มีของเหลือให้เบิก (คงเหลือ ${item.quantity}${inCart?`, อยู่ในใบเบิกนี้แล้ว ${inCart}`:''})</span>`;
+  $('#diq_quantity').max = available;
+}
+
+async function refreshDrugItemsStock(group){
+  const { data, error } = await dbClient.from('drug_items').select('*').eq('drug_group', group).order('created_at',{ascending:false});
+  if(!error && data){
+    state.drugItems = [...state.drugItems.filter(x=>x.drug_group!==group), ...data];
+  }
+}
+
+function openDrugIssueCreateModal(group){
+  drugIssueCart = [];
+  openModal(`สร้างใบเบิก${escapeHtml(group)}ใหม่`, `
+    <div class="space-y-3">
+      <div><label class="text-sm text-slate-500">รายการ</label>
+        <select id="diq_item_id" class="input-field" onchange="updateDrugIssueHint()">
+          ${drugItemsOf(group).filter(d=>d.is_active!==false).map(d=>`<option value="${d.id}" ${Number(d.quantity)<=0?'disabled':''}>${escapeHtml(d.name)} (คงเหลือ ${d.quantity} ${escapeHtml(d.unit)}${Number(d.quantity)<=0?' - หมด':''})</option>`).join('')}
+        </select>
+      </div>
+      <div class="grid grid-cols-[1fr_auto] gap-2">
+        <input id="diq_quantity" type="number" min="1" value="1" class="input-field">
+        <button type="button" onclick="addToDrugIssueCart('${group}')" class="btn-secondary gap-1"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มรายการ</button>
+      </div>
+      <p id="diq_hint" class="text-xs text-slate-400 -mt-1"></p>
+      <div id="drugIssueCartBody" class="space-y-2 max-h-56 overflow-y-auto"></div>
+      <div><label class="text-sm text-slate-500">เหตุผล/รายละเอียดการเบิก *</label><textarea id="diq_reason" rows="2" required class="input-field" placeholder="ระบุเหตุผลในการขอเบิก..."></textarea></div>
+      <div class="flex justify-end gap-2 pt-2"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="button" onclick="submitDrugIssueRequest('${group}')" class="btn-primary">ส่งใบเบิก</button></div>
+    </div>
+  `, 'max-w-lg');
+  renderDrugIssueCart();
+}
+
+function addToDrugIssueCart(group){
+  const itemId = $('#diq_item_id').value;
+  const qty = Number($('#diq_quantity').value);
+  if(!qty || qty <= 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
+  const item = state.drugItems.find(x=>x.id===itemId);
+  if(!item) return;
+  const available = Number(item.quantity) - drugIssueCartQty(itemId);
+  if(qty > available){
+    showToast(available > 0
+      ? `เบิก "${item.name}" เกินยอดคงเหลือไม่ได้ (เบิกได้สูงสุด ${available} ${item.unit})`
+      : `"${item.name}" ไม่มีเหลือให้เบิกเพิ่ม`, 'error');
+    return;
+  }
+  drugIssueCart.push({ tempId: crypto.randomUUID(), item_id: itemId, item_name: item.name, unit: item.unit, quantity: qty });
+  $('#diq_quantity').value = 1;
+  renderDrugIssueCart();
+}
+
+function removeFromDrugIssueCart(tempId){
+  drugIssueCart = drugIssueCart.filter(c=>c.tempId !== tempId);
+  renderDrugIssueCart();
+}
+
+function renderDrugIssueCart(){
+  $('#drugIssueCartBody').innerHTML = drugIssueCart.map(c=>`
+    <div class="flex items-center justify-between gap-2 bg-slate-50 rounded-xl px-3 py-2">
+      <p class="text-sm text-slate-700 truncate">${escapeHtml(c.item_name)} <span class="text-emerald-600 font-medium">x${c.quantity} ${escapeHtml(c.unit)}</span></p>
+      <button onclick="removeFromDrugIssueCart('${c.tempId}')" class="w-7 h-7 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center shrink-0"><i data-lucide="x" class="w-3.5 h-3.5"></i></button>
+    </div>`).join('') || `<p class="text-center text-slate-300 py-4 text-sm">ยังไม่มีรายการ เลือกแล้วกด "เพิ่มรายการ"</p>`;
+  lucide.createIcons();
+  updateDrugIssueHint();
+}
+
+async function submitDrugIssueRequest(group){
+  if(drugIssueCart.length === 0){ showToast('กรุณาเพิ่มรายการอย่างน้อย 1 รายการ','error'); return; }
+  const reason = $('#diq_reason').value.trim();
+  if(!reason){ showToast('กรุณาระบุเหตุผลการเบิก','error'); return; }
+  showLoader();
+  try{
+    await refreshDrugItemsStock(group);
+    const totals = {};
+    drugIssueCart.forEach(c=>{ totals[c.item_id] = (totals[c.item_id]||0) + Number(c.quantity); });
+    for(const [iid, total] of Object.entries(totals)){
+      const item = state.drugItems.find(x=>x.id===iid);
+      if(!item || total > Number(item.quantity)){
+        hideLoader();
+        showToast(`"${item?.name||'รายการ'}" มียอดคงเหลือ ${item?item.quantity:0} ไม่พอสำหรับที่ขอเบิก ${total} กรุณาลดจำนวนหรือลบรายการ`,'error');
+        updateDrugIssueHint();
+        return;
+      }
+    }
+    const issueCode = nextSeqCodes(fyPrefix(DRUG_ISSUE_PREFIX[group]), drugRequestsOf(group).map(r=>r.issue_code))[0];
+    const { data: header, error: e1 } = await dbClient.from('drug_issue_requests').insert({
+      issue_code: issueCode, drug_group: group, requester_id: state.user.id, reason, status:'รออนุมัติ'
+    }).select().single();
+    if(e1) throw e1;
+    const itemsPayload = drugIssueCart.map(c=>({ issue_request_id: header.id, item_id: c.item_id, quantity: c.quantity }));
+    const { data: items, error: e2 } = await dbClient.from('drug_issue_items').insert(itemsPayload).select('*, item:drug_items(name,unit,item_code)');
+    if(e2) throw e2;
+    header.items = items;
+    state.drugIssueRequests.unshift(header);
+    drugIssueCart = [];
+    closeModal();
+    if(drugSubView[group]==='issue') renderDrugIssueList(group);
+    else if(state.currentView==='dashboard') renderDashboard();
+    showToast('ส่งใบเบิกสำเร็จ รอการอนุมัติ','success');
+  }catch(err){ showToast('ส่งใบเบิกไม่สำเร็จ: '+err.message,'error'); }
+  finally{ hideLoader(); }
+}
+
+// ---------- ติดตามสถานะการเบิก ----------
+function renderDrugTrack(group){
+  const isPriv = state.user.role !== 'employee';
+  drugTrackFilter[group] = '';
+  const list = isPriv ? drugRequestsOf(group) : drugRequestsOf(group).filter(r=>r.requester_id===state.user.id);
+  const cards = [
+    {key:'', label:'ทั้งหมด', icon:'layers', color:'sky', count:list.length},
+    {key:'รออนุมัติ', label:'รออนุมัติ', icon:'clock', color:'amber', count:list.filter(r=>r.status==='รออนุมัติ').length},
+    {key:'อนุมัติ', label:'อนุมัติแล้ว', icon:'check-circle', color:'emerald', count:list.filter(r=>r.status==='อนุมัติ').length},
+    {key:'ไม่อนุมัติ', label:'ไม่อนุมัติ', icon:'x-circle', color:'rose', count:list.filter(r=>r.status==='ไม่อนุมัติ').length},
+  ];
+  $('#drugTabBody-'+drugGK(group)).innerHTML = `
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+      ${cards.map(c=>`
+        <button type="button" data-dtrack="${escapeHtml(c.key)}" onclick="setDrugTrackFilter('${group}','${c.key}')" class="drug-track-card card flex items-center gap-3 text-left transition ring-2 ring-transparent">
+          <div class="w-10 h-10 rounded-2xl bg-${c.color}-100 text-${c.color}-500 flex items-center justify-center shrink-0"><i data-lucide="${c.icon}" class="w-5 h-5"></i></div>
+          <div class="min-w-0"><p class="text-lg font-bold text-slate-700">${c.count}</p><p class="text-xs text-slate-400 truncate">${c.label}</p></div>
+        </button>`).join('')}
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="drugTrackSearch" oninput="renderDrugTrackTable('${group}')" placeholder="ค้นหาเลขที่ใบเบิก..." class="input-field pl-9">
+      </div>
+    </div>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">เลขที่ใบเบิก</th>${isPriv?'<th class="py-2 pr-3">ผู้ขอ</th>':''}<th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3">สถานะ</th><th class="py-2 pr-3">วันที่</th><th class="py-2">จัดการ</th>
+    </tr></thead><tbody id="drugTrackTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderDrugTrackTable(group);
+}
+
+function setDrugTrackFilter(group, status){ drugTrackFilter[group] = status; renderDrugTrackTable(group); }
+
+function renderDrugTrackTable(group){
+  const isPriv = state.user.role !== 'employee';
+  const q = ($('#drugTrackSearch')?.value||'').toLowerCase();
+  $all('.drug-track-card').forEach(b=>{
+    const on = b.dataset.dtrack === drugTrackFilter[group];
+    b.classList.toggle('ring-sky-300', on);
+    b.classList.toggle('ring-transparent', !on);
+  });
+  let list = isPriv ? drugRequestsOf(group) : drugRequestsOf(group).filter(r=>r.requester_id===state.user.id);
+  if(drugTrackFilter[group]) list = list.filter(r=>r.status===drugTrackFilter[group]);
+  list = list.filter(r=>!q || (r.issue_code||'').toLowerCase().includes(q));
+  const colspan = isPriv ? 6 : 5;
+  $('#drugTrackTableBody').innerHTML = list.map(r=>{
+    const items = r.items||[];
+    const summary = items.map(it=>`${it.item?.name||'-'} x${it.quantity}`).join(', ');
+    return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(r.issue_code)}</td>
+      ${isPriv?`<td class="py-2 pr-3">${escapeHtml(getUserName(r.requester_id))}</td>`:''}
+      <td class="py-2 pr-3 max-w-xs truncate" title="${escapeHtml(summary)}">${items.length} รายการ: ${escapeHtml(summary)}</td>
+      <td class="py-2 pr-3">${statusBadge(r.status)}</td>
+      <td class="py-2 pr-3 text-slate-400">${formatDate(r.created_at)}</td>
+      <td class="py-2"><div class="flex gap-2 items-center">
+        <button onclick="openDrugIssueDetailModal('${group}','${r.id}')" class="btn-secondary !py-1.5 !px-3 text-xs gap-1"><i data-lucide="eye" class="w-3.5 h-3.5"></i>ดูสถานะ</button>
+        <button onclick="openDrugIssuePrintPreview('${r.id}')" class="w-8 h-8 rounded-lg bg-violet-50 text-violet-500 flex items-center justify-center" title="พิมพ์ใบเบิก"><i data-lucide="printer" class="w-4 h-4"></i></button>
+        ${r.status==='รออนุมัติ' && isPriv ? `
+          <button onclick="approveDrugIssueRequest('${group}','${r.id}',true)" class="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-500 flex items-center justify-center" title="อนุมัติ"><i data-lucide="check" class="w-4 h-4"></i></button>
+          <button onclick="approveDrugIssueRequest('${group}','${r.id}',false)" class="w-8 h-8 rounded-lg bg-rose-50 text-rose-500 flex items-center justify-center" title="ไม่อนุมัติ"><i data-lucide="x" class="w-4 h-4"></i></button>` : ''}
+        ${r.status==='รออนุมัติ' && (isPriv || r.requester_id===state.user.id) ? `<button onclick="deleteDrugIssueRequest('${group}','${r.id}')" class="w-8 h-8 rounded-lg bg-slate-50 text-slate-400 flex items-center justify-center" title="ยกเลิก/ลบ"><i data-lucide="trash-2" class="w-4 h-4"></i></button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="${colspan}" class="py-8 text-center text-slate-300">ไม่พบใบเบิก</td></tr>`;
+  lucide.createIcons();
+}
+
+function refreshDrugIssueView(group){
+  if(drugSubView[group]==='track'){ const f = drugTrackFilter[group]; renderDrugTrack(group); drugTrackFilter[group]=f; renderDrugTrackTable(group); }
+  else if(drugSubView[group]==='issue') renderDrugIssueList(group);
+}
+
+function drugIssuedQty(it){ return it.approved_quantity ?? it.quantity; }
+
+function openDrugIssueDetailModal(group, id){
+  const r = drugRequestsOf(group).find(x=>x.id===id);
+  if(!r) return;
+  const pending = r.status === 'รออนุมัติ';
+  const rejected = r.status === 'ไม่อนุมัติ';
+  const decided = !pending;
+  openModal(`ติดตามสถานะ: ${r.issue_code}`, `
+    <div class="mb-4 flex items-center justify-between">
+      <div><p class="text-xs text-slate-400">ผู้ขอเบิก</p><p class="font-medium text-slate-700">${escapeHtml(getUserName(r.requester_id))}</p></div>
+      ${statusBadge(r.status)}
+    </div>
+    <div class="mb-4 space-y-3">
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full bg-sky-100 text-sky-500 flex items-center justify-center shrink-0"><i data-lucide="file-plus" class="w-4 h-4"></i></div>
+        <div><p class="text-sm font-medium text-slate-700">สร้างใบเบิก</p><p class="text-xs text-slate-400">${formatDate(r.created_at)}</p></div>
+      </div>
+      <div class="flex items-start gap-3">
+        <div class="w-8 h-8 rounded-full ${decided ? (rejected?'bg-rose-100 text-rose-500':'bg-emerald-100 text-emerald-500') : 'bg-amber-100 text-amber-500'} flex items-center justify-center shrink-0">
+          <i data-lucide="${decided ? (rejected?'x-circle':'check-circle') : 'clock'}" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <p class="text-sm font-medium ${decided?'text-slate-700':'text-slate-400'}">${decided ? (rejected?'ไม่อนุมัติ':'อนุมัติแล้ว') : 'รอการอนุมัติ'}</p>
+          <p class="text-xs text-slate-400">${r.approved_at ? formatDate(r.approved_at) + (r.approved_by?' · โดย '+escapeHtml(getUserName(r.approved_by)):'') : '-'}</p>
+        </div>
+      </div>
+    </div>
+    ${r.approver_note?`<p class="text-xs text-slate-400 mb-4">หมายเหตุผู้อนุมัติ: ${escapeHtml(r.approver_note)}</p>`:''}
+    <div class="mb-3"><p class="text-sm text-slate-500 mb-1">เหตุผลการเบิก</p><p class="text-sm text-slate-700">${escapeHtml(r.reason||'-')}</p></div>
+    <div>
+      <p class="text-sm text-slate-500 mb-2">รายการที่เบิก (${(r.items||[]).length} รายการ)</p>
+      <div class="space-y-2 max-h-48 overflow-y-auto">
+        ${(r.items||[]).map(it=>`
+          <div class="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2 text-sm">
+            <span class="text-slate-700">${escapeHtml(it.item?.name||'-')}</span>
+            ${r.status==='อนุมัติ'
+              ? `<span class="font-medium ${drugIssuedQty(it)<Number(it.quantity)?'text-amber-600':'text-slate-600'}">ขอ ${it.quantity} · จ่าย ${drugIssuedQty(it)} ${escapeHtml(it.item?.unit||'')}${drugIssuedQty(it)<Number(it.quantity)?' (บางส่วน)':''}</span>`
+              : `<span class="font-medium text-slate-600">${it.quantity} ${escapeHtml(it.item?.unit||'')}</span>`}
+          </div>`).join('') || '<p class="text-center text-slate-300 py-4 text-sm">ไม่มีรายการ</p>'}
+      </div>
+    </div>
+    <div class="flex justify-end pt-4"><button onclick="openDrugIssuePrintPreview('${r.id}')" class="btn-secondary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ใบเบิก</button></div>
+  `, 'max-w-lg', true);
+  lucide.createIcons();
+}
+
+function approveDrugIssueRequest(group, id, approve){
+  const issue = state.drugIssueRequests.find(r=>r.id===id);
+  if(!issue) return;
+  if(approve){ openDrugIssueApproveModal(group, id); return; }
+  confirmAction('ยืนยันไม่อนุมัติใบเบิกนี้?', async ()=>{
+    showLoader();
+    try{
+      const payload = { status:'ไม่อนุมัติ', approved_by: state.user.id, approved_at: new Date().toISOString() };
+      const { data, error } = await dbClient.from('drug_issue_requests').update(payload).eq('id', id).select().single();
+      if(error) throw error;
+      Object.assign(issue, data);
+      refreshDrugIssueView(group);
+      showToast('ไม่อนุมัติใบเบิก','success');
+    }catch(err){ showToast('ดำเนินการไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+function openDrugIssueApproveModal(group, id){
+  const issue = state.drugIssueRequests.find(r=>r.id===id);
+  if(!issue) return;
+  const remaining = {};
+  const rows = (issue.items||[]).map((it, i)=>{
+    const item = state.drugItems.find(x=>x.id===it.item_id);
+    const stock = item ? Number(item.quantity) : 0;
+    if(remaining[it.item_id] === undefined) remaining[it.item_id] = stock;
+    const max = Math.max(0, Math.min(Number(it.quantity), remaining[it.item_id]));
+    remaining[it.item_id] -= max;
+    const short = stock < Number(it.quantity);
+    return `<tr class="border-b border-slate-50">
+      <td class="py-2 pr-3 text-slate-700">${escapeHtml(it.item?.name||'-')}</td>
+      <td class="py-2 pr-3 text-center">${it.quantity}</td>
+      <td class="py-2 pr-3 text-center ${short?'text-rose-500 font-medium':'text-slate-500'}">${stock}</td>
+      <td class="py-2 w-28"><input type="number" class="input-field !py-1.5 text-center" data-idx="${i}" min="0" max="${max}" step="0.01" value="${max}"> <span class="text-xs text-slate-400">${escapeHtml(it.item?.unit||'')}</span></td>
+    </tr>`;
+  }).join('');
+  openModal(`อนุมัติใบเบิก ${issue.issue_code}`, `
+    <p class="text-sm text-slate-500 mb-3">ระบุจำนวนที่อนุมัติจ่ายแต่ละรายการ (เบิกบางส่วนได้ ไม่เกินจำนวนที่ขอและยอดคงเหลือ)</p>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead><tr class="text-slate-400 text-left border-b border-slate-100"><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3 text-center">ขอเบิก</th><th class="py-2 pr-3 text-center">คงเหลือ</th><th class="py-2">อนุมัติจ่าย</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table></div>
+    <div class="mt-3"><label class="text-sm text-slate-500">หมายเหตุผู้อนุมัติ (ถ้ามี)</label><textarea id="dia_note" rows="2" class="input-field"></textarea></div>
+    <div class="flex justify-end gap-2 pt-3"><button type="button" onclick="closeModal()" class="btn-secondary">ยกเลิก</button><button type="button" onclick="submitDrugIssueApproval('${group}','${issue.id}')" class="btn-primary gap-2"><i data-lucide="check" class="w-4 h-4"></i>ยืนยันอนุมัติ</button></div>
+  `, 'max-w-2xl');
+  lucide.createIcons();
+}
+
+async function submitDrugIssueApproval(group, id){
+  const issue = state.drugIssueRequests.find(r=>r.id===id);
+  if(!issue) return;
+  const items = issue.items||[];
+  const qtys = items.map((it,i)=>{
+    const el = document.querySelector(`#modalBody input[data-idx="${i}"]`);
+    return el ? Number(el.value) : NaN;
+  });
+  const used = {};
+  for(let i=0;i<items.length;i++){
+    const it = items[i];
+    const item = state.drugItems.find(x=>x.id===it.item_id);
+    const q = qtys[i];
+    if(isNaN(q) || q < 0){ showToast('กรุณาระบุจำนวนให้ถูกต้อง','error'); return; }
+    if(q > Number(it.quantity)){ showToast(`"${it.item?.name}" อนุมัติเกินจำนวนที่ขอ`,'error'); return; }
+    used[it.item_id] = (used[it.item_id]||0) + q;
+    if(used[it.item_id] > Number(item?.quantity||0)){ showToast(`"${it.item?.name}" มียอดคงเหลือไม่พอ`,'error'); return; }
+  }
+  if(qtys.every(q=>q===0)){ showToast('จำนวนอนุมัติเป็น 0 ทุกรายการ กรุณาใช้ปุ่ม "ไม่อนุมัติ" แทน','error'); return; }
+  const note = $('#dia_note').value.trim() || null;
+  closeModal();
+  showLoader();
+  try{
+    const { data, error } = await dbClient.from('drug_issue_requests').update({
+      status:'อนุมัติ', approved_by: state.user.id, approved_at: new Date().toISOString(), approver_note: note
+    }).eq('id', id).select().single();
+    if(error) throw error;
+    Object.assign(issue, data);
+    for(let i=0;i<items.length;i++){
+      const it = items[i], q = qtys[i];
+      const { error: e1 } = await dbClient.from('drug_issue_items').update({ approved_quantity: q }).eq('id', it.id);
+      if(e1) throw e1;
+      it.approved_quantity = q;
+      if(q <= 0) continue;
+      const item = state.drugItems.find(x=>x.id===it.item_id);
+      if(!item) continue;
+      const newQty = Math.max(0, Number(item.quantity) - q);
+      const { data: updated, error: e2 } = await dbClient.from('drug_items').update({quantity:newQty}).eq('id', item.id).select().single();
+      if(e2) throw e2;
+      Object.assign(item, updated);
+      const { data: tx } = await dbClient.from('drug_stock_transactions').insert({
+        item_id: item.id, type:'เบิกออก', quantity: q, note:'อนุมัติใบเบิก '+(issue.issue_code||'')+(q<Number(it.quantity)?` (จ่าย ${q} จากที่ขอ ${it.quantity})`:''), reference_issue_id: issue.id, performed_by: state.user.id
+      }).select().single();
+      if(tx) state.drugStockTx.unshift(tx);
+    }
+    refreshDrugIssueView(group);
+    showToast('อนุมัติใบเบิกสำเร็จ','success');
+  }catch(err){
+    refreshDrugIssueView(group);
+    showToast('อนุมัติไม่สมบูรณ์: '+err.message,'error');
+  }
+  finally{ hideLoader(); }
+}
+
+function deleteDrugIssueRequest(group, id){
+  confirmAction('ยืนยันการยกเลิก/ลบใบเบิกนี้?', async ()=>{
+    showLoader();
+    try{
+      const { error } = await dbClient.from('drug_issue_requests').delete().eq('id', id);
+      if(error) throw error;
+      state.drugIssueRequests = state.drugIssueRequests.filter(r=>r.id!==id);
+      refreshDrugIssueView(group);
+      showToast('ลบสำเร็จ','success');
+    }catch(err){ showToast('ลบไม่สำเร็จ: '+err.message,'error'); }
+    finally{ hideLoader(); }
+  });
+}
+
+function drugIssueFormHtml(r){
+  const requester = state.users.find(u=>u.id===r.requester_id);
+  const approved = r.status === 'อนุมัติ';
+  const approverName = approved && r.approved_by ? getUserName(r.approved_by) : '';
+  const items = r.items || [];
+  const minRows = 10;
+  const rows = [];
+  for(let i=0; i<Math.max(minRows, items.length); i++){
+    const it = items[i];
+    rows.push(`<tr style="height:9mm">
+      <td style="text-align:center;width:12mm">${it?i+1:''}</td>
+      <td>${it?escapeHtml(it.item?.name||'-'):''}</td>
+      <td style="text-align:center;width:22mm">${it?escapeHtml(it.item?.unit||''):''}</td>
+      <td style="text-align:center;width:24mm">${it?it.quantity:''}</td>
+      <td style="text-align:center;width:24mm">${it&&approved?drugIssuedQty(it):''}</td>
+      <td style="width:32mm"></td>
+    </tr>`);
+  }
+  const sign = (label, name) => `
+    <div style="text-align:center;margin-top:12mm">
+      <div>(ลงชื่อ)<span class="a4-dots" style="min-width:55mm"></span>${label}</div>
+      <div>(<span style="display:inline-block;min-width:55mm;text-align:center">${name?escapeHtml(name):'&nbsp;'}</span>)</div>
+    </div>`;
+  return `<div class="a4-sheet">
+    <div style="text-align:center">
+      ${orgHeaderHtml()}
+      <div style="font-size:20px;font-weight:700;margin-top:2mm">ใบเบิก${escapeHtml(r.drug_group||'')}</div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:6mm">
+      <div>เลขที่ใบเบิก <b>${escapeHtml(r.issue_code||'-')}</b></div>
+      <div>วันที่เบิก <b>${formatThaiLongDate(r.created_at)}</b></div>
+    </div>
+    <div style="margin-top:5mm">เรียน หัวหน้าหน่วยพัสดุ</div>
+    <div style="text-indent:15mm;margin-top:2mm">ด้วยข้าพเจ้า <b>${escapeHtml(requester?.full_name||'-')}</b>${requester?.position?` ตำแหน่ง ${escapeHtml(requester.position)}`:''} มีความประสงค์ขอเบิก${escapeHtml(r.drug_group||'')} ตามรายการข้างล่างนี้ เพื่อใช้ในการ <b>${escapeHtml(r.reason||'-')}</b></div>
+    <table style="margin-top:6mm">
+      <thead><tr><th>ลำดับ</th><th>รายการ</th><th>หน่วยนับ</th><th>จำนวนเบิก</th><th>จำนวนจ่าย</th><th>หมายเหตุ</th></tr></thead>
+      <tbody>${rows.join('')}</tbody>
+    </table>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 8mm;margin-top:8mm">
+      ${sign('ผู้เบิก', requester?.full_name||'')}
+      ${sign('ผู้อนุมัติ', approverName)}
+      ${sign('ผู้จ่าย', '')}
+      ${sign('ผู้รับ', '')}
+    </div>
+  </div>`;
+}
+
+function openDrugIssuePrintPreview(id){
+  const r = state.drugIssueRequests.find(x=>x.id===id);
+  if(!r) return;
+  openModal(`ใบเบิก ${r.issue_code}`, `
+    <div class="flex justify-end gap-2 mb-3">
+      <button onclick="closeModal()" class="btn-secondary">ปิด</button>
+      <button onclick="printDrugIssueForm('${r.id}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / บันทึก PDF</button>
+    </div>
+    <div class="overflow-auto bg-slate-100 rounded-2xl p-3" style="max-height:70vh"><div style="width:210mm;margin:0 auto">${drugIssueFormHtml(r)}</div></div>
+  `, 'max-w-4xl', true);
+  lucide.createIcons();
+}
+
+function printDrugIssueForm(id){
+  const r = state.drugIssueRequests.find(x=>x.id===id);
+  if(!r) return;
+  $('#printArea').innerHTML = drugIssueFormHtml(r);
+  printArea();
+}
+
+// ---------- Stock Card ----------
+function drugTxMonthKey(t){ const d = new Date(t.created_at); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; }
+function drugTxNet(t){ return t.type === 'เบิกออก' ? -Number(t.quantity) : Number(t.quantity); }
+
+function drugStockCardData(itemId, monthKey){
+  const item = state.drugItems.find(x=>x.id===itemId);
+  const txs = state.drugStockTx.filter(t=>t.item_id===itemId).slice().sort((a,b)=> new Date(a.created_at)-new Date(b.created_at) || String(a.id).localeCompare(String(b.id)));
+  const initial = Number(item.quantity) - txs.reduce((s,t)=>s+drugTxNet(t),0);
+  let bal = initial;
+  const all = txs.map(t=>{ const before = bal; bal += drugTxNet(t); return { tx:t, before, balance:bal, key:drugTxMonthKey(t) }; });
+  const inPeriod = monthKey ? all.filter(r=>r.key===monthKey) : all;
+  let opening = initial;
+  if(monthKey){
+    const firstIdx = all.findIndex(r=>r.key===monthKey);
+    if(firstIdx >= 0) opening = all[firstIdx].before;
+    else { const prior = all.filter(r=>r.key < monthKey); opening = prior.length ? prior[prior.length-1].balance : initial; }
+  }
+  const rows = inPeriod.map(r=>({ tx:r.tx, in: r.tx.type==='เบิกออก' ? 0 : Number(r.tx.quantity), out: r.tx.type==='เบิกออก' ? Number(r.tx.quantity) : 0, balance:r.balance }));
+  const totalIn = rows.reduce((s,r)=>s+r.in,0);
+  const totalOut = rows.reduce((s,r)=>s+r.out,0);
+  const closing = rows.length ? rows[rows.length-1].balance : opening;
+  return { item, opening, rows, totalIn, totalOut, closing, monthKey };
+}
+
+function drugStockCardMonthOptions(itemId){
+  return [...new Set(state.drugStockTx.filter(t=>t.item_id===itemId).map(drugTxMonthKey))].sort().reverse();
+}
+
+function drugStockCardRowsHtml(d){
+  const unit = escapeHtml(d.item.unit||'');
+  const body = d.rows.map(r=>`
+    <tr class="border-b border-slate-50">
+      <td class="py-2 pr-3 text-slate-400 whitespace-nowrap">${formatDate(r.tx.created_at)}</td>
+      <td class="py-2 pr-3">${r.tx.type==='เบิกออก'?'<span class="text-rose-500">จ่ายออก</span>':'<span class="text-emerald-600">รับเข้า</span>'}${r.tx.note?`<div class="text-xs text-slate-400">${escapeHtml(r.tx.note)}</div>`:''}</td>
+      <td class="py-2 pr-3 text-right text-emerald-600 font-medium">${r.in||''}</td>
+      <td class="py-2 pr-3 text-right text-rose-500 font-medium">${r.out||''}</td>
+      <td class="py-2 pr-3 text-right">${r.balance}</td>
+      <td class="py-2">${escapeHtml(getUserName(r.tx.performed_by))}</td>
+    </tr>`).join('');
+  return `
+    <tr class="border-b border-slate-100 bg-slate-50/70"><td class="py-2 pr-3"></td><td class="py-2 pr-3 font-medium text-slate-600">ยอดยกมา</td><td></td><td></td><td class="py-2 pr-3 text-right font-medium">${d.opening}</td><td></td></tr>
+    ${body || `<tr><td colspan="6" class="py-6 text-center text-slate-300">ไม่มีการเคลื่อนไหวในช่วงนี้</td></tr>`}
+    <tr class="bg-slate-50/70"><td></td><td class="py-2 pr-3 font-medium text-slate-600">รวม / คงเหลือปลายงวด (${unit})</td><td class="py-2 pr-3 text-right font-medium text-emerald-600">${d.totalIn}</td><td class="py-2 pr-3 text-right font-medium text-rose-500">${d.totalOut}</td><td class="py-2 pr-3 text-right font-semibold">${d.closing}</td><td></td></tr>`;
+}
+
+function openDrugStockCardModal(group, itemId, monthKey=''){
+  const item = state.drugItems.find(x=>x.id===itemId);
+  if(!item) return;
+  const months = drugStockCardMonthOptions(itemId);
+  openModal(`Stock Card: ${item.name}`, `
+    <div class="flex flex-wrap items-end justify-between gap-3 mb-3">
+      <div class="text-sm text-slate-500">${escapeHtml(item.item_code||'-')} · คงเหลือปัจจุบัน <span class="font-semibold text-slate-700">${item.quantity} ${escapeHtml(item.unit)}</span></div>
+      <div class="flex gap-2 items-center">
+        <select id="dsc_month" class="input-field !py-1.5 !w-auto" onchange="updateDrugStockCardView('${item.id}')">
+          <option value="">ทุกเดือน</option>
+          ${months.map(k=>`<option value="${k}" ${k===monthKey?'selected':''}>${monthKeyLabel(k)}</option>`).join('')}
+        </select>
+        <button onclick="printDrugStockCard('${item.id}')" class="btn-primary !py-1.5 gap-2 text-sm"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / PDF</button>
+      </div>
+    </div>
+    <div class="overflow-x-auto max-h-96 overflow-y-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100 sticky top-0 bg-white">
+      <th class="py-2 pr-3">วันที่</th><th class="py-2 pr-3">รายการ</th><th class="py-2 pr-3 text-right">รับเข้า</th><th class="py-2 pr-3 text-right">จ่ายออก</th><th class="py-2 pr-3 text-right">คงเหลือ</th><th class="py-2">ผู้ทำรายการ</th>
+    </tr></thead><tbody id="dscBody"></tbody></table></div>
+  `, 'max-w-3xl', true);
+  lucide.createIcons();
+  updateDrugStockCardView(itemId);
+}
+
+function updateDrugStockCardView(itemId){
+  const d = drugStockCardData(itemId, $('#dsc_month').value);
+  $('#dscBody').innerHTML = drugStockCardRowsHtml(d);
+}
+
+function drugStockCardFormHtml(d){
+  const item = d.item;
+  const rows = d.rows.map(r=>`<tr>
+    <td style="white-space:nowrap">${formatThaiLongDate(r.tx.created_at)}</td>
+    <td>${r.tx.type==='เบิกออก'?'จ่ายออก':'รับเข้า'}${r.tx.note?` - ${escapeHtml(r.tx.note)}`:''}</td>
+    <td style="text-align:right">${r.in||''}</td>
+    <td style="text-align:right">${r.out||''}</td>
+    <td style="text-align:right">${r.balance}</td>
+    <td>${escapeHtml(getUserName(r.tx.performed_by))}</td>
+  </tr>`).join('');
+  return `<div class="a4-sheet">
+    <div style="text-align:center">
+      ${orgHeaderHtml({nameOnly:true})}
+      <div style="font-size:22px;font-weight:700;margin-top:2mm">บัตรควบคุม (Stock Card)</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1mm 8mm;margin-top:6mm">
+      <div>ชื่อรายการ <b>${escapeHtml(item.name)}</b></div>
+      <div>รหัส <b>${escapeHtml(item.item_code||'-')}</b></div>
+      <div>หมวดหมู่ <b>${escapeHtml(item.category||'-')}</b></div>
+      <div>หน่วยนับ <b>${escapeHtml(item.unit||'-')}</b></div>
+      <div>จุดสั่งซื้อขั้นต่ำ <b>${item.min_quantity} ${escapeHtml(item.unit||'')}</b></div>
+      <div>ช่วงเวลา <b>${d.monthKey ? 'เดือน ' + monthKeyLabel(d.monthKey) : 'ทุกเดือน'}</b></div>
+    </div>
+    <table style="margin-top:5mm">
+      <thead><tr><th>วันที่</th><th>รายการ / เอกสารอ้างอิง</th><th style="width:20mm">รับเข้า</th><th style="width:20mm">จ่ายออก</th><th style="width:22mm">คงเหลือ</th><th style="width:34mm">ผู้ทำรายการ</th></tr></thead>
+      <tbody>
+        <tr><td></td><td><b>ยอดยกมา</b></td><td></td><td></td><td style="text-align:right"><b>${d.opening}</b></td><td></td></tr>
+        ${rows || '<tr><td colspan="6" style="text-align:center">ไม่มีการเคลื่อนไหวในช่วงนี้</td></tr>'}
+        <tr><td></td><td><b>รวม / คงเหลือปลายงวด</b></td><td style="text-align:right"><b>${d.totalIn}</b></td><td style="text-align:right"><b>${d.totalOut}</b></td><td style="text-align:right"><b>${d.closing}</b></td><td></td></tr>
+      </tbody>
+    </table>
+    <div style="margin-top:8mm;font-size:12px;color:#444">พิมพ์เมื่อ ${formatThaiLongDate(new Date())} โดย ${escapeHtml(state.user.full_name)}</div>
+    <div style="display:flex;justify-content:flex-end;margin-top:12mm">
+      <div style="text-align:center">
+        <div>(ลงชื่อ)<span class="a4-dots" style="min-width:55mm"></span>ผู้ควบคุม</div>
+        <div>(<span style="display:inline-block;min-width:55mm">&nbsp;</span>)</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function printDrugStockCard(itemId){
+  const d = drugStockCardData(itemId, $('#dsc_month')?.value || '');
+  $('#printArea').innerHTML = drugStockCardFormHtml(d);
+  printArea();
+}
+
+function renderDrugCard(group){
+  $('#drugTabBody-'+drugGK(group)).innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="relative w-full sm:w-72">
+        <i data-lucide="search" class="w-4 h-4 text-slate-300 absolute left-3 top-1/2 -translate-y-1/2"></i>
+        <input id="drugCardSearch" oninput="renderDrugCardTable('${group}')" placeholder="ค้นหา..." class="input-field pl-9">
+      </div>
+    </div>
+    <div class="card overflow-x-auto"><table class="w-full text-sm"><thead><tr class="text-slate-400 text-left border-b border-slate-100">
+      <th class="py-2 pr-3">รหัส</th><th class="py-2 pr-3">ชื่อ</th><th class="py-2 pr-3">หมวดหมู่</th><th class="py-2 pr-3">คงเหลือ</th><th class="py-2 pr-3">จุดสั่งซื้อขั้นต่ำ</th><th class="py-2">Stock Card</th>
+    </tr></thead><tbody id="drugCardTableBody"></tbody></table></div>
+  `;
+  lucide.createIcons();
+  renderDrugCardTable(group);
+}
+
+function renderDrugCardTable(group){
+  const q = ($('#drugCardSearch')?.value||'').toLowerCase();
+  const list = drugItemsOf(group).filter(d=>!q || d.name.toLowerCase().includes(q) || (d.item_code||'').toLowerCase().includes(q));
+  $('#drugCardTableBody').innerHTML = list.map(d=>{
+    const low = Number(d.quantity) <= Number(d.min_quantity);
+    return `<tr class="border-b border-slate-50 hover:bg-slate-50/60">
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(d.item_code||'-')}</td>
+      <td class="py-2 pr-3 font-medium text-slate-600">${escapeHtml(d.name)}${d.is_active===false?' <span class="badge !px-2 !py-0.5 text-[10px] bg-slate-200 text-slate-500">ปิดใช้งาน</span>':''}</td>
+      <td class="py-2 pr-3 text-slate-500">${escapeHtml(d.category||'-')}</td>
+      <td class="py-2 pr-3"><span class="badge ${low?'bg-rose-100 text-rose-600':'bg-emerald-100 text-emerald-600'}">${d.quantity} ${escapeHtml(d.unit)}</span></td>
+      <td class="py-2 pr-3 text-slate-500">${d.min_quantity} ${escapeHtml(d.unit)}</td>
+      <td class="py-2"><button onclick="openDrugStockCardModal('${group}','${d.id}')" class="btn-secondary !py-1.5 !px-3 text-xs gap-1"><i data-lucide="scroll-text" class="w-3.5 h-3.5"></i>ดูรายการ</button></td>
+    </tr>`;
+  }).join('') || `<tr><td colspan="6" class="py-8 text-center text-slate-300">ไม่พบข้อมูล</td></tr>`;
+  lucide.createIcons();
+}
+
+// ---------- รายงาน ----------
+function buildDrugReportCfg(group, kind){
+  const st = drugReportState[group];
+  const monthText = st.month ? monthKeyLabel(st.month) : null;
+  if(kind === 'receive'){
+    const ids = new Set(drugItemsOf(group).map(x=>x.id));
+    const list = state.drugStockTx.filter(t=>t.type==='รับเข้า' && ids.has(t.item_id) && (!st.month||dateMonthKey(t.created_at)===st.month))
+      .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const rows = list.map((t,i)=>[i+1, formatDate(t.created_at), getDrugNameOnly(t.item_id), t.quantity, getUserName(t.performed_by), t.note||'-']);
+    return {
+      title: `รายงานการรับเข้า${group}`,
+      meta: [['ช่วงเวลา', monthText || 'ทุกเดือน']],
+      headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'วันที่',w:'26mm'},{label:'รายการ'},{label:'จำนวน',align:'right',w:'20mm'},{label:'ผู้บันทึก',w:'26mm'},{label:'หมายเหตุ',w:'30mm'}],
+      rows,
+      footer: ['','','รวม '+rows.length+' รายการ',rows.reduce((s,r)=>s+Number(r[3]),0),'',''],
+      summary: `พบ ${rows.length} รายการ`,
+    };
+  }
+  if(kind === 'issue'){
+    const list = drugRequestsOf(group).filter(r=>(!st.month||dateMonthKey(r.created_at)===st.month) && (!st.status||r.status===st.status))
+      .slice().sort((a,b)=>new Date(a.created_at)-new Date(b.created_at));
+    const rows = [];
+    list.forEach(r=>(r.items||[]).forEach(it=>rows.push([rows.length+1, r.issue_code, formatDate(r.created_at), it.item?.name||'-', it.quantity, r.status==='อนุมัติ'?drugIssuedQty(it):'-', r.status])));
+    return {
+      title: `รายงานการเบิก${group}`,
+      meta: [['ช่วงเวลา', monthText || 'ทุกเดือน'], ['สถานะ', st.status || 'ทั้งหมด']],
+      headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'เลขที่ใบเบิก',w:'26mm'},{label:'วันที่',w:'24mm'},{label:'รายการ'},{label:'ขอเบิก',align:'right',w:'18mm'},{label:'จ่ายจริง',align:'right',w:'18mm'},{label:'สถานะ',w:'22mm'}],
+      rows,
+      footer: ['','','','รวม '+rows.length+' รายการ','','',''],
+      summary: `พบ ${rows.length} รายการ จาก ${list.length} ใบเบิก`,
+    };
+  }
+  const list = drugItemsOf(group).filter(d=>!st.category||d.category===st.category).slice().sort((a,b)=>String(a.item_code).localeCompare(String(b.item_code)));
+  const rows = list.map((d,i)=>[i+1, d.item_code||'-', d.name, d.category||'-', d.quantity, d.unit, Number(d.quantity)<=Number(d.min_quantity)?'ใกล้หมด/หมด':'ปกติ']);
+  return {
+    title: `รายงาน${group}คงเหลือ`,
+    meta: [['หมวดหมู่', st.category || 'ทุกหมวดหมู่']],
+    headers: [{label:'ลำดับ',align:'center',w:'11mm'},{label:'รหัส',w:'24mm'},{label:'รายการ'},{label:'หมวดหมู่',w:'30mm'},{label:'คงเหลือ',align:'right',w:'18mm'},{label:'หน่วย',w:'16mm'},{label:'สถานะ',w:'20mm'}],
+    rows,
+    footer: [],
+    summary: `ทั้งหมด ${rows.length} รายการ`,
+  };
+}
+
+function renderDrugReportTab(group){
+  const st = drugReportState[group];
+  $('#drugTabBody-'+drugGK(group)).innerHTML = `
+    <div class="card !p-4 flex flex-wrap items-end gap-3 mb-4">
+      <div><label class="text-xs text-slate-400 block mb-1">ประเภทรายงาน</label>
+        <select id="dr_kind" class="input-field !py-2 !w-auto min-w-[10rem]" onchange="setDrugReportKind('${group}', this.value)">
+          <option value="receive" ${st.kind==='receive'?'selected':''}>รายงานการรับเข้า</option>
+          <option value="issue" ${st.kind==='issue'?'selected':''}>รายงานการเบิก</option>
+          <option value="balance" ${st.kind==='balance'?'selected':''}>รายงานคงเหลือ</option>
+        </select>
+      </div>
+      <div id="drFilterExtra" class="flex flex-wrap items-end gap-3"></div>
+      <div class="ml-auto flex gap-2">
+        <button onclick="exportDrugReportCSV('${group}')" class="btn-secondary gap-2"><i data-lucide="download" class="w-4 h-4"></i>CSV</button>
+        <button onclick="printDrugReport('${group}')" class="btn-primary gap-2"><i data-lucide="printer" class="w-4 h-4"></i>พิมพ์ / PDF</button>
+      </div>
+    </div>
+    <div id="drSummary" class="flex flex-wrap gap-2 mb-4"></div>
+    <div id="drBody"></div>
+  `;
+  lucide.createIcons();
+  updateDrugReportView(group);
+}
+
+function setDrugReportKind(group, kind){ drugReportState[group].kind = kind; updateDrugReportView(group); }
+function setDrugReportFilter(group, key, val){ drugReportState[group][key] = val; updateDrugReportView(group); }
+
+function updateDrugReportView(group){
+  const st = drugReportState[group];
+  const months = [...new Set((st.kind==='receive' ? state.drugStockTx.filter(t=>t.type==='รับเข้า') : drugRequestsOf(group)).map(x=>dateMonthKey(x.created_at)))].sort().reverse();
+  let extra = '';
+  if(st.kind === 'receive' || st.kind === 'issue'){
+    extra += `<div><label class="text-xs text-slate-400 block mb-1">เดือน</label><select class="input-field !py-2 !w-auto" onchange="setDrugReportFilter('${group}','month',this.value)"><option value="">ทุกเดือน</option>${months.map(k=>`<option value="${k}" ${st.month===k?'selected':''}>${monthKeyLabel(k)}</option>`).join('')}</select></div>`;
+  }
+  if(st.kind === 'issue'){
+    extra += `<div><label class="text-xs text-slate-400 block mb-1">สถานะ</label><select class="input-field !py-2 !w-auto" onchange="setDrugReportFilter('${group}','status',this.value)"><option value="">ทั้งหมด</option>${['รออนุมัติ','อนุมัติ','ไม่อนุมัติ'].map(s=>`<option value="${s}" ${st.status===s?'selected':''}>${s}</option>`).join('')}</select></div>`;
+  }
+  if(st.kind === 'balance'){
+    extra += `<div><label class="text-xs text-slate-400 block mb-1">หมวดหมู่</label><select class="input-field !py-2 !w-auto" onchange="setDrugReportFilter('${group}','category',this.value)"><option value="">ทุกหมวดหมู่</option>${DRUG_CATEGORIES[group].map(c=>`<option value="${escapeHtml(c)}" ${st.category===c?'selected':''}>${escapeHtml(c)}</option>`).join('')}</select></div>`;
+  }
+  if($('#drFilterExtra')) $('#drFilterExtra').innerHTML = extra;
+  lucide.createIcons();
+  const cfg = buildDrugReportCfg(group, st.kind);
+  $('#drSummary').innerHTML = String(cfg.summary||'').split(' · ').filter(Boolean).map(t=>`<span class="inline-flex items-center rounded-full bg-white px-3.5 py-1.5 text-xs text-slate-500 shadow-[0_6px_16px_-10px_rgba(100,116,139,.35)]">${escapeHtml(t)}</span>`).join('');
+  $('#drBody').innerHTML = reportTableHtml(cfg);
+}
+
+function printDrugReport(group){
+  $('#printArea').innerHTML = reportSheetHtml(buildDrugReportCfg(group, drugReportState[group].kind));
+  printArea();
+}
+
+function exportDrugReportCSV(group){
+  const cfg = buildDrugReportCfg(group, drugReportState[group].kind);
+  const labels = cfg.headers.map(h=>h.label);
+  const rows = cfg.rows.map(r=>Object.fromEntries(labels.map((l,i)=>[l, r[i]])));
+  exportCSV(rows, `${drugGK(group)}_${drugReportState[group].kind}_report.csv`, labels);
 }
 
 // ---------------------------------------------------------------------------

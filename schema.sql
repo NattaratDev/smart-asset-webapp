@@ -13,6 +13,10 @@ create extension if not exists pgcrypto;
 -- ----------------------------------------------------------------------------
 -- 1) DROP (ถ้ามีของเดิม) - ลบตามลำดับ dependency
 -- ----------------------------------------------------------------------------
+drop table if exists public.drug_stock_transactions cascade;
+drop table if exists public.drug_issue_items cascade;
+drop table if exists public.drug_issue_requests cascade;
+drop table if exists public.drug_items cascade;
 drop table if exists public.medical_loans cascade;
 drop table if exists public.medical_equipment cascade;
 drop table if exists public.app_settings cascade;
@@ -217,6 +221,60 @@ create table public.asset_loans (
 );
 
 -- ----------------------------------------------------------------------------
+-- 5e2) TABLE: drug_items / drug_issue_requests / drug_issue_items / drug_stock_transactions
+--      (โมดูลเวชภัณฑ์ แยกจากวัสดุ มี 2 กลุ่ม: เวชภัณฑ์ / เวชภัณฑ์มิใช่ยา - ใช้ระบบรับเข้า/เบิกแบบเดียวกับวัสดุ)
+-- ----------------------------------------------------------------------------
+create table public.drug_items (
+  id           uuid primary key default gen_random_uuid(),
+  item_code    text unique not null,
+  drug_group   text not null check (drug_group in ('เวชภัณฑ์','เวชภัณฑ์มิใช่ยา')),
+  name         text not null,
+  category     text,
+  unit         text not null default 'ชิ้น',
+  quantity     numeric not null default 0,
+  min_quantity numeric not null default 0,
+  description  text,
+  image_url    text,
+  is_active    boolean not null default true,
+  created_by   uuid references public.users(id) on delete set null,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+create table public.drug_issue_requests (
+  id            uuid primary key default gen_random_uuid(),
+  issue_code    text unique not null,
+  drug_group    text not null check (drug_group in ('เวชภัณฑ์','เวชภัณฑ์มิใช่ยา')),
+  requester_id  uuid not null references public.users(id) on delete cascade,
+  reason        text,
+  status        text not null default 'รออนุมัติ' check (status in ('รออนุมัติ','อนุมัติ','ไม่อนุมัติ')),
+  approved_by   uuid references public.users(id) on delete set null,
+  approved_at   timestamptz,
+  approver_note text,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now()
+);
+
+create table public.drug_issue_items (
+  id                 uuid primary key default gen_random_uuid(),
+  issue_request_id   uuid not null references public.drug_issue_requests(id) on delete cascade,
+  item_id            uuid not null references public.drug_items(id) on delete restrict,
+  quantity           numeric not null check (quantity > 0),
+  approved_quantity  numeric check (approved_quantity is null or approved_quantity >= 0)
+);
+
+create table public.drug_stock_transactions (
+  id                  uuid primary key default gen_random_uuid(),
+  item_id             uuid not null references public.drug_items(id) on delete cascade,
+  type                text not null check (type in ('รับเข้า','เบิกออก')),
+  quantity            numeric not null check (quantity > 0),
+  note                text,
+  reference_issue_id  uuid references public.drug_issue_requests(id) on delete set null,
+  performed_by        uuid references public.users(id) on delete set null,
+  created_at          timestamptz not null default now()
+);
+
+-- ----------------------------------------------------------------------------
 -- 5f) TABLE: medical_equipment / medical_loans (ยืม-คืนอุปกรณ์การแพทย์ - แยกจากครุภัณฑ์ ใช้ยืม-คืนอย่างเดียว)
 -- ----------------------------------------------------------------------------
 create table public.medical_equipment (
@@ -278,6 +336,10 @@ create index idx_asset_repairs_asset on public.asset_repairs(asset_id);
 create index idx_asset_loans_asset on public.asset_loans(asset_id);
 create index idx_asset_loans_borrower on public.asset_loans(borrower_id);
 create index idx_stock_tx_material on public.material_stock_transactions(material_id);
+create index idx_drug_items_group on public.drug_items(drug_group);
+create index idx_drug_issue_items_request on public.drug_issue_items(issue_request_id);
+create index idx_drug_issue_requests_requester on public.drug_issue_requests(requester_id);
+create index idx_drug_stock_tx_item on public.drug_stock_transactions(item_id);
 create index idx_medical_loans_equipment on public.medical_loans(equipment_id);
 create unique index uq_medical_loans_active on public.medical_loans(equipment_id) where status = 'ยืมอยู่';   -- 1 ชิ้นยืมได้ครั้งละ 1 ใบ
 
@@ -308,6 +370,10 @@ create trigger trg_asset_repairs_updated_at before update on public.asset_repair
   for each row execute function public.set_updated_at();
 create trigger trg_asset_loans_updated_at before update on public.asset_loans
   for each row execute function public.set_updated_at();
+create trigger trg_drug_items_updated_at before update on public.drug_items
+  for each row execute function public.set_updated_at();
+create trigger trg_drug_issue_requests_updated_at before update on public.drug_issue_requests
+  for each row execute function public.set_updated_at();
 create trigger trg_medical_equipment_updated_at before update on public.medical_equipment
   for each row execute function public.set_updated_at();
 create trigger trg_medical_loans_updated_at before update on public.medical_loans
@@ -319,7 +385,7 @@ create trigger trg_app_settings_updated_at before update on public.app_settings
 -- 8) GRANTS - ให้สิทธิ์ anon/authenticated เข้าถึงตาราง (RLS ทำงานร่วมกับ GRANT เสมอ)
 -- ----------------------------------------------------------------------------
 grant usage on schema public to anon, authenticated;
-grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items, public.app_settings, public.asset_receipts, public.asset_repairs, public.asset_loans, public.medical_equipment, public.medical_loans to anon, authenticated;
+grant all on public.users, public.materials, public.fixed_assets, public.requests, public.material_stock_transactions, public.material_issue_requests, public.material_issue_items, public.app_settings, public.asset_receipts, public.asset_repairs, public.asset_loans, public.medical_equipment, public.medical_loans, public.drug_items, public.drug_issue_requests, public.drug_issue_items, public.drug_stock_transactions to anon, authenticated;
 grant usage, select on all sequences in schema public to anon, authenticated;
 
 -- ----------------------------------------------------------------------------
@@ -337,6 +403,10 @@ alter table public.asset_receipts enable row level security;
 alter table public.asset_repairs enable row level security;
 alter table public.asset_loans enable row level security;
 alter table public.medical_equipment enable row level security;
+alter table public.drug_items enable row level security;
+alter table public.drug_issue_requests enable row level security;
+alter table public.drug_issue_items enable row level security;
+alter table public.drug_stock_transactions enable row level security;
 alter table public.medical_loans enable row level security;
 
 -- users
@@ -394,6 +464,24 @@ create policy "asset_loans_select_all" on public.asset_loans for select using (t
 create policy "asset_loans_insert_all" on public.asset_loans for insert with check (true);
 create policy "asset_loans_update_all" on public.asset_loans for update using (true) with check (true);
 create policy "asset_loans_delete_all" on public.asset_loans for delete using (true);
+
+-- drug_items / drug_issue_requests / drug_issue_items / drug_stock_transactions
+create policy "drug_items_select_all" on public.drug_items for select using (true);
+create policy "drug_items_insert_all" on public.drug_items for insert with check (true);
+create policy "drug_items_update_all" on public.drug_items for update using (true) with check (true);
+create policy "drug_items_delete_all" on public.drug_items for delete using (true);
+create policy "drug_issue_requests_select_all" on public.drug_issue_requests for select using (true);
+create policy "drug_issue_requests_insert_all" on public.drug_issue_requests for insert with check (true);
+create policy "drug_issue_requests_update_all" on public.drug_issue_requests for update using (true) with check (true);
+create policy "drug_issue_requests_delete_all" on public.drug_issue_requests for delete using (true);
+create policy "drug_issue_items_select_all" on public.drug_issue_items for select using (true);
+create policy "drug_issue_items_insert_all" on public.drug_issue_items for insert with check (true);
+create policy "drug_issue_items_update_all" on public.drug_issue_items for update using (true) with check (true);
+create policy "drug_issue_items_delete_all" on public.drug_issue_items for delete using (true);
+create policy "drug_stock_tx_select_all" on public.drug_stock_transactions for select using (true);
+create policy "drug_stock_tx_insert_all" on public.drug_stock_transactions for insert with check (true);
+create policy "drug_stock_tx_update_all" on public.drug_stock_transactions for update using (true) with check (true);
+create policy "drug_stock_tx_delete_all" on public.drug_stock_transactions for delete using (true);
 
 -- medical_equipment / medical_loans
 create policy "medical_equipment_select_all" on public.medical_equipment for select using (true);
