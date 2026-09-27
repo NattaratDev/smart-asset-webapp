@@ -1373,7 +1373,10 @@ function assetRepairHistoryHtml(a){
 
 function assetLedgerHtml(a){
   const o = orgInfo();
-  const dep = assetDepreciation(a);
+  // ตารางค่าเสื่อมราคาคำนวณครบอายุการใช้งาน (รวมปีในอนาคต) : ส่งวันที่ไกลพอให้คำนวณจนหมดอายุ
+  const farEnd = a.purchase_date && Number(a.useful_life_years) > 0 ? new Date(Number(a.purchase_date.slice(0,4)) + Math.ceil(Number(a.useful_life_years)) + 2, 8, 30) : new Date();
+  const dep = assetDepreciation(a, farEnd);
+  const now = new Date();
   const resp = state.users.find(u=>u.id===a.responsible_user_id);
   const box = (list, val) => list.map(x=>`<span style="margin-right:7mm;white-space:nowrap"><span style="font-size:16px;line-height:1">${val===x?'&#9745;':'&#9744;'}</span> ${escapeHtml(x)}</span>`).join('');
   const fld = (label, val, style='') => `<div style="display:flex;gap:2mm;${style}"><b style="white-space:nowrap">${label}</b><span style="flex:1;border-bottom:1px dotted #111;padding:0 2mm;min-height:6mm">${val ? escapeHtml(val) : '&nbsp;'}</span></div>`;
@@ -1396,7 +1399,7 @@ function assetLedgerHtml(a){
   </tr>`);
   rows.push(`<tr>${blank}${blank}<td>${escapeHtml(a.asset_code||'')}</td>${blank}${blank}${blank}${blank}${blank}${blank}${blank}<td style="font-size:11px">${escapeHtml(a.location||'')}</td></tr>`);
   dep.rows.forEach(r=>{
-    rows.push(`<tr><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td>${blank}<td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}</td>${blank}${blank}${blank}${blank}${blank}${num(fmtMoney(r.amount))}${num(fmtMoney(r.net))}<td style="font-size:11px">สะสม ${fmtMoney(r.accumulated)}</td></tr>`);
+    rows.push(`<tr${r.to > now ? ' style="font-style:italic"' : ''}><td style="text-align:center">${r.partial ? shortThaiDate(r.to) : '30 ก.ย. '+r.fyBE}</td>${blank}<td>ค่าเสื่อมราคา ปีงบฯ ${r.fyBE}</td>${blank}${blank}${blank}${blank}${blank}${num(fmtMoney(r.amount))}${num(fmtMoney(r.net))}<td style="font-size:11px">สะสม ${fmtMoney(r.accumulated)}</td></tr>`);
   });
   if(a.status === 'จำหน่ายแล้ว') rows.push(`<tr>${blank}${blank}<td>สถานะ: จำหน่ายแล้ว</td>${blank.repeat(8)}</tr>`);
   while(rows.length < 20) rows.push(`<tr>${blank.repeat(11)}</tr>`);
@@ -1418,7 +1421,7 @@ function assetLedgerHtml(a){
       <tbody>${rows.map(r=>r.replace('<tr>','<tr style="height:5.6mm">')).join('')}</tbody>
     </table></div>
     ${dep.ready ? '' : '<div style="font-size:11px;color:#666;margin-top:1mm">* ยังไม่ได้กำหนดอายุการใช้งาน/ราคา/วันที่ได้มา จึงไม่คำนวณค่าเสื่อมราคา (แก้ไขได้ที่ทะเบียนครุภัณฑ์)</div>'}
-    <div style="font-size:10.5px;color:#555;margin-top:1mm">ค่าเสื่อมราคาคำนวณแบบเส้นตรง มูลค่าซาก 1 บาท ตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา</div>
+    <div style="font-size:10.5px;color:#555;margin-top:1mm">ค่าเสื่อมราคาคำนวณแบบเส้นตรง มูลค่าซาก 1 บาท ตามปีงบประมาณ (1 ต.ค. – 30 ก.ย.) ปีแรกคิดตามสัดส่วนวันนับจากวันที่ได้มา คำนวณจนครบอายุการใช้งาน (ตัวเอียง = ปีที่ยังมาไม่ถึง คำนวณล่วงหน้า)</div>
   </div>` + assetRepairHistoryHtml(a);
 }
 
